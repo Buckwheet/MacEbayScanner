@@ -14,12 +14,13 @@ Implement LLM Performance-per-Dollar (Tok/s per $) metrics, memory bandwidth inf
   - Embedded real-time LLM inference strip on all verified match cards displaying tok/s, unified bandwidth, and value score.
   - Added tok/s and bandwidth badges to model combination trend cards.
 - Added unit test `test_llm_hardware_metrics_calculation` in `tests/test_market_and_pricing.py` (23/23 tests pass).
-- Deploying to `encoder1`, rebuilding live dashboard, and verifying service.
+- Deployed to remote host `encoder1`, rebuilt site docs, pushed to GitHub Pages, and restarted `mac-ebay-scanner.service`.
 
 ## Commands Run + Results
 - `pytest tests -v` -> 23 passed in 0.42s.
 - `python main.py build-site` -> Generated updated `index.html` and `data.json` with hardware tok/s and value scores.
-- Value rankings verified: Top value model is MacBook Pro M4 Max 128GB (5.61 tok/s per $1k), Top raw speed model is Mac Studio M5 Ultra 256GB (53.3 tok/s).
+- Deployed to `encoder1`, site rebuilt and live at `https://buckwheet.github.io/MacEbayScanner/`.
+- `systemctl --user status mac-ebay-scanner.service` -> Running active.
 
 ## Files Touched
 - `mac_ebay_scanner/site_generator.py`
@@ -29,6 +30,6 @@ Implement LLM Performance-per-Dollar (Tok/s per $) metrics, memory bandwidth inf
 - `PROJECT_STATE.md`
 
 ## Next 3 Actions
-- [ ] Commit and push changes to GitHub repository.
-- [ ] Pull changes onto `encoder1`, rebuild site, and push live GitHub Pages update.
-- [ ] Verify live site controls and sorting on `https://buckwheet.github.io/MacEbayScanner/`.
+- [x] Implement hardware bandwidth and Qwen4 tok/s calculator helper.
+- [x] Integrate metrics into `site_generator.py` (JSON and HTML dashboard with sort/filter controls).
+- [x] Deploy to `encoder1`, rebuild site, and verify live dashboard.
