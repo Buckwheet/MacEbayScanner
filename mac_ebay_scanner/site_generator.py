@@ -99,6 +99,8 @@ def generate_static_site(
             "first_seen_at": it.get("first_seen_at", ""),
         })
 
+    trend_analysis = storage.get_detailed_trend_analysis()
+
     site_data = {
         "last_scanned": timestamp_str,
         "last_scanned_short": time_only_str,
@@ -106,6 +108,7 @@ def generate_static_site(
         "total_processed": db_stats["total_seen"],
         "total_matches": len(processed_items),
         "market_stats": market_stats,
+        "trend_analysis": trend_analysis,
         "items": processed_items,
     }
     (output_dir / "data.json").write_text(json.dumps(site_data, indent=2), encoding="utf-8")
@@ -187,18 +190,29 @@ def generate_static_site(
       </div>
     </div>
 
-    <!-- Market Overview Cards -->
+    <!-- Model Combination Trend Analysis -->
     <section class="mb-10">
-      <h2 class="text-sm font-semibold tracking-wider uppercase text-gray-400 mb-4 flex items-center gap-2">
-        <i class="fas fa-chart-line text-blue-400"></i> Market Price Trends (eBay Baseline)
-      </h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="statsGrid">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-sm font-semibold tracking-wider uppercase text-gray-400 flex items-center gap-2">
+            <i class="fas fa-chart-line text-blue-400"></i> Model Combination Trend Analysis
+          </h2>
+          <p class="text-xs text-gray-400 mt-0.5">Real-time market price spectrums, medians, and deal targets across Apple Silicon hardware tiers</p>
+        </div>
+        <div class="flex items-center gap-1.5 self-start sm:self-auto">
+          <button onclick="setTrendTab('all')" class="trend-tab active text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white font-medium" data-trend-tab="all">All Combinations</button>
+          <button onclick="setTrendTab('MacBook Pro')" class="trend-tab text-[11px] px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-trend-tab="MacBook Pro">MacBook Pro</button>
+          <button onclick="setTrendTab('Mac Studio')" class="trend-tab text-[11px] px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-trend-tab="Mac Studio">Mac Studio</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="trendsGrid">
         <!-- Rendered by JS -->
       </div>
     </section>
 
     <!-- Controls / Filters -->
-    <section class="glass p-4 rounded-2xl mb-8 flex flex-col md:flex-row gap-4 items-center justify-between">
+    <section class="glass p-4 rounded-2xl mb-8 flex flex-col md:flex-row gap-4 items-center justify-between" id="listingsSection">
       <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
         <span class="text-xs text-gray-400 font-medium mr-1">Filter:</span>
         <button onclick="setFilter('all')" class="filter-btn active text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium" data-filter="all">All</button>
@@ -206,6 +220,10 @@ def generate_static_site(
         <button onclick="setFilter('Mac Studio')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-filter="Mac Studio">Mac Studio</button>
         <button onclick="setFilter('256GB')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30" data-filter="256GB">256GB RAM Only</button>
         <button onclick="setFilter('deal')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30" data-filter="deal">🔥 Deals Only</button>
+        <span id="activeFilterBadge" class="hidden text-xs px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium items-center gap-1.5">
+          <span id="activeFilterText"></span>
+          <button onclick="setFilter('all')" class="hover:text-white ml-1"><i class="fas fa-xmark"></i></button>
+        </span>
       </div>
 
       <div class="flex items-center gap-3 w-full md:w-auto">
@@ -279,7 +297,7 @@ def generate_static_site(
           const matchCountElem = document.getElementById('matchingCount');
           if (matchCountElem && freshData.total_matches !== undefined) matchCountElem.innerText = `${{freshData.total_matches}} verified`;
 
-          renderStats();
+          renderTrends();
           applyFilters();
         }} else {{
           console.warn('Auto-refresh HTTP', resp.status, '- attempting reload');
@@ -300,30 +318,116 @@ def generate_static_site(
 
     setInterval(updateRefreshTimer, 1000);
 
-    function renderStats() {{
-      const grid = document.getElementById('statsGrid');
+    let currentTrendTab = 'all';
+
+    function setTrendTab(tab) {{
+      currentTrendTab = tab;
+      document.querySelectorAll('.trend-tab').forEach(b => {{
+        if (b.dataset.trendTab === tab) {{
+          b.className = 'trend-tab active text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white font-medium';
+        }} else {{
+          b.className = 'trend-tab text-[11px] px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700';
+        }}
+      }});
+      renderTrends();
+    }}
+
+    function renderTrends() {{
+      const grid = document.getElementById('trendsGrid');
+      if (!grid) return;
       grid.innerHTML = '';
-      for (const [cat, s] of Object.entries(DATA.market_stats)) {{
+
+      const trends = (DATA.trend_analysis || []).filter(t => {{
+        if (currentTrendTab === 'MacBook Pro' && !t.model.includes('MacBook')) return false;
+        if (currentTrendTab === 'Mac Studio' && !t.model.includes('Studio')) return false;
+        return true;
+      }});
+
+      if (trends.length === 0) {{
+        grid.innerHTML = '<div class="col-span-full py-8 text-center text-gray-500">No trend data available for this selection.</div>';
+        return;
+      }}
+
+      trends.forEach(t => {{
+        const is256 = t.ram && t.ram.includes('256');
+        const iconClass = t.model.includes('Studio') ? 'fa-desktop text-purple-400' : 'fa-laptop text-blue-400';
+        const ramBadge = is256 
+          ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono font-semibold">256GB RAM</span>'
+          : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono font-semibold">128GB RAM</span>';
+
+        const storageList = Object.entries(t.storage_spread || {{}})
+          .filter(([k, _]) => k !== 'Standard')
+          .slice(0, 3)
+          .map(([k, count]) => `<span class="px-1.5 py-0.5 rounded bg-gray-800/90 text-gray-300 text-[10px] font-mono border border-gray-700/50">${{k}} (${{count}})</span>`)
+          .join(' ');
+
         const card = document.createElement('div');
-        card.className = 'glass p-4 rounded-xl border border-gray-800';
+        card.className = 'glass p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition flex flex-col justify-between';
         card.innerHTML = `
-          <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
-            <span class="font-medium text-gray-200">${{cat}}</span>
-            <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono">${{s.count}} listings</span>
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <i class="fas ${{iconClass}} text-sm"></i>
+                <span class="font-bold text-sm text-white">${{t.model}} ${{t.chip}}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                ${{ramBadge}}
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 font-mono">${{t.count}} active</span>
+              </div>
+            </div>
+
+            <!-- Price Spectrum Box -->
+            <div class="mb-3 bg-gray-950/70 p-3 rounded-lg border border-gray-800/90">
+              <div class="flex justify-between items-baseline text-[11px] font-mono text-gray-400 mb-1.5">
+                <div>Low: <strong class="text-emerald-400 font-bold">$${{t.min.toLocaleString()}}</strong></div>
+                <div>Avg: <strong class="text-yellow-400 font-bold">$${{t.avg.toLocaleString()}}</strong></div>
+                <div>Max: <strong class="text-gray-300">$${{t.max.toLocaleString()}}</strong></div>
+              </div>
+              <div class="relative w-full h-2 rounded-full bg-gray-800 overflow-hidden mb-2">
+                <div class="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-emerald-500 via-amber-400 to-rose-500 rounded-full" style="width: 100%;"></div>
+              </div>
+              <div class="flex justify-between items-center text-[10px] text-gray-400">
+                <span class="text-amber-400 font-medium">Median: <strong>$${{t.median.toLocaleString()}}</strong></span>
+                <span class="text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Target: &lt; $${{t.deal_threshold.toLocaleString()}}</span>
+              </div>
+            </div>
+
+            <!-- Storage Spread -->
+            <div class="flex items-center gap-1.5 flex-wrap text-xs text-gray-400 mb-3">
+              <span class="text-[11px] text-gray-500">Storage seen:</span>
+              ${{storageList || '<span class="text-[10px] text-gray-500 font-mono">Standard SSD</span>'}}
+            </div>
           </div>
-          <div class="flex items-baseline justify-between mt-2">
-            <div>
-              <span class="text-2xl font-bold text-white">$${{s.min.toLocaleString()}}</span>
-              <span class="text-xs text-gray-400 ml-1">lowest</span>
-            </div>
-            <div class="text-right text-xs">
-              <div class="text-yellow-400 font-medium">Avg: $${{s.avg.toLocaleString()}}</div>
-              <div class="text-gray-400">Median: $${{s.median.toLocaleString()}}</div>
-            </div>
+
+          <!-- Quick Action -->
+          <div class="pt-3 border-t border-gray-800/80 flex items-center justify-between">
+            <span class="text-[11px] text-gray-400">Spread: <span class="font-mono text-gray-300">+${{t.price_spread_pct}}%</span></span>
+            <button onclick="filterByCombination('${{t.category}}')" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-blue-600 text-blue-400 hover:text-white transition cursor-pointer">
+              View ${{t.count}} listings <i class="fas fa-arrow-down text-[10px]"></i>
+            </button>
           </div>
         `;
         grid.appendChild(card);
+      }});
+    }}
+
+    function filterByCombination(catKey) {{
+      currentFilter = catKey;
+      document.querySelectorAll('.filter-btn').forEach(b => {{
+        b.className = 'filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700';
+      }});
+      const badge = document.getElementById('activeFilterBadge');
+      const text = document.getElementById('activeFilterText');
+      if (badge && text) {{
+        text.innerText = catKey;
+        badge.classList.remove('hidden');
+        badge.classList.add('inline-flex');
       }}
+      const searchBox = document.getElementById('searchInput');
+      if (searchBox) searchBox.value = '';
+      applyFilters();
+      const section = document.getElementById('listingsSection');
+      if (section) section.scrollIntoView({{ behavior: 'smooth' }});
     }}
 
     function setFilter(filter) {{
@@ -335,6 +439,11 @@ def generate_static_site(
           b.className = 'filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700';
         }}
       }});
+      const badge = document.getElementById('activeFilterBadge');
+      if (badge) {{
+        badge.classList.add('hidden');
+        badge.classList.remove('inline-flex');
+      }}
       applyFilters();
     }}
 
@@ -347,6 +456,7 @@ def generate_static_site(
         if (currentFilter === 'Mac Studio' && it.model !== 'Mac Studio') return false;
         if (currentFilter === '256GB' && !it.ram.includes('256')) return false;
         if (currentFilter === 'deal' && !it.is_deal) return false;
+        if (currentFilter.startsWith('Mac') && it.category !== currentFilter) return false;
         if (query && !it.title.toLowerCase().includes(query) && !it.chip.toLowerCase().includes(query)) return false;
         return true;
       }});
@@ -438,7 +548,7 @@ def generate_static_site(
       }});
     }}
 
-    renderStats();
+    renderTrends();
     applyFilters();
   </script>
 </body>

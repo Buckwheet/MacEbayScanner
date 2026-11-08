@@ -217,10 +217,23 @@ class SeenStorage:
         c_str = (chip or "M3 Max").strip()
         r_str = "256GB" if ram and "256" in ram else "128GB"
 
-        m_chip = re.search(r"\b(m[3-9]|m[1-9][0-9])\s*(?:pro|max|ultra)?\b", c_str, re.IGNORECASE)
-        chip_norm = m_chip.group(0).upper() if m_chip else c_str
+        clean_model = "Mac Studio" if "studio" in m_str.lower() else "MacBook Pro"
+        c_upper = c_str.upper()
 
-        return f"{m_str} {chip_norm} {r_str}"
+        m_gen = re.search(r"\bM([3-9]|\d{2})\b", c_upper)
+        gen = f"M{m_gen.group(1)}" if m_gen else "M3"
+
+        if "ULTRA" in c_upper or (clean_model == "Mac Studio" and r_str == "256GB"):
+            tier = "ULTRA"
+        elif "MAX" in c_upper:
+            tier = "MAX"
+        elif "PRO" in c_upper:
+            tier = "PRO"
+        else:
+            tier = "MAX"
+
+        chip_norm = f"{gen} {tier}"
+        return f"{clean_model} {chip_norm} {r_str}"
 
     def get_market_statistics(self) -> Dict[str, Dict[str, Any]]:
         """Compute market pricing statistics by model and chip category from matched items."""
@@ -250,6 +263,95 @@ class SeenStorage:
                 "max": max(prices),
             }
         return stats
+
+    def get_detailed_trend_analysis(self) -> List[Dict[str, Any]]:
+        """Compute rich trend analysis metrics grouped by model combination."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT item_id, title, model, chip, ram, price, currency, condition, seller, url, first_seen_at
+                FROM seen_items
+                WHERE matched = 1 AND price IS NOT NULL AND price > 500
+                ORDER BY price ASC
+            """)
+            rows = cursor.fetchall()
+
+        by_cat: Dict[str, List[Dict[str, Any]]] = {}
+        for r in rows:
+            cat = self.get_category_key(r["model"], r["chip"], r["ram"])
+            by_cat.setdefault(cat, []).append(dict(r))
+
+        trends = []
+        for cat, items in by_cat.items():
+            if not items:
+                continue
+            prices = [float(it["price"]) for it in items]
+            avg_price = round(statistics.mean(prices), 2)
+            med_price = round(statistics.median(prices), 2)
+            min_price = min(prices)
+            max_price = max(prices)
+            deal_threshold = round(avg_price * 0.85, 2)  # 15% discount threshold
+
+            conditions: Dict[str, int] = {}
+            for it in items:
+                c = it.get("condition") or "Pre-owned"
+                conditions[c] = conditions.get(c, 0) + 1
+
+            storage_spread: Dict[str, int] = {}
+            for it in items:
+                t = (it.get("title") or "").upper()
+                if "16TB" in t:
+                    s = "16TB"
+                elif "8TB" in t:
+                    s = "8TB"
+                elif "4TB" in t:
+                    s = "4TB"
+                elif "2TB" in t:
+                    s = "2TB"
+                elif "1TB" in t:
+                    s = "1TB"
+                elif "512GB" in t:
+                    s = "512GB"
+                else:
+                    s = "Standard"
+                storage_spread[s] = storage_spread.get(s, 0) + 1
+
+            cheapest = items[0]
+            parts = cat.split(" ")
+            ram_val = parts[-1]
+            chip_val = " ".join(parts[-3:-1])
+            model_val = " ".join(parts[:-3])
+
+            trends.append({
+                "category": cat,
+                "model": model_val,
+                "chip": chip_val,
+                "ram": ram_val,
+                "count": len(items),
+                "min": min_price,
+                "avg": avg_price,
+                "median": med_price,
+                "max": max_price,
+                "deal_threshold": deal_threshold,
+                "conditions": conditions,
+                "storage_spread": storage_spread,
+                "best_deal": {
+                    "title": cheapest["title"],
+                    "price": cheapest["price"],
+                    "url": cheapest["url"],
+                    "seller": cheapest.get("seller", "eBay"),
+                    "condition": cheapest.get("condition", "Used"),
+                },
+                "price_spread_pct": round(((max_price - min_price) / min_price) * 100.0, 1) if min_price > 0 else 0,
+            })
+
+        def sort_key(t):
+            mod_prio = 0 if "MacBook" in t["model"] else 1
+            ram_prio = 0 if "128" in t["ram"] else 1
+            return (mod_prio, ram_prio, t["chip"], t["avg"])
+
+        trends.sort(key=sort_key)
+        return trends
 
     def evaluate_deal(
         self,
