@@ -161,3 +161,34 @@ def test_reject_256gb_ssd_in_aspect_with_low_ram(engine):
     res = engine.evaluate_item(summary, details)
     assert res.matched is False
     assert "36" in res.reason or "not 128GB" in res.reason
+
+
+def test_reject_multi_variation_listing_with_seller_defined_variations(engine):
+    summary = {
+        "title": "Apple MacBook Pro 16” (2021-2023)  M1 M2 M3 Max 40-C 16GB- 128GB RAM 512GB- 8TB",
+        "itemGroupType": "SELLER_DEFINED_VARIATIONS",
+        "price": {"value": "1349.00", "currency": "USD"},
+    }
+    res = engine.evaluate_item(summary)
+    assert res.matched is False
+    assert "SELLER_DEFINED_VARIATIONS" in res.reason or "variation" in res.reason.lower()
+
+
+def test_reject_ram_range_in_title(engine):
+    summary = {
+        "title": "2023 Apple MacBook Pro M3 Max 16.2-inch 36GB-128GB RAM, 1TB-8TB SSD, All Colors",
+        "price": {"value": "2199.00", "currency": "USD"},
+    }
+    res = engine.evaluate_item(summary)
+    assert res.matched is False
+    assert "range" in res.reason.lower() or "variation" in res.reason.lower()
+
+
+def test_reject_mixed_chip_generations_in_title(engine):
+    summary = {
+        "title": "Apple MacBook Pro 16 M1 M2 M3 Max 128GB RAM 2TB SSD Space Gray",
+        "price": {"value": "2499.00", "currency": "USD"},
+    }
+    res = engine.evaluate_item(summary)
+    assert res.matched is False
+    assert "multiple" in res.reason.lower() or "m1" in res.reason.lower()

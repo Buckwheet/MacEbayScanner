@@ -90,7 +90,29 @@ class MacFilterEngine:
             if self.max_price is not None and price_val > self.max_price:
                 return MatchResult(False, f"Price ${price_val:.2f} is above maximum ${self.max_price:.2f}")
 
-        # 2. Check parts / repair
+        # 2. Check multi-variation / dropdown picker listings
+        if item_summary.get("itemGroupType") == "SELLER_DEFINED_VARIATIONS":
+            return MatchResult(
+                False,
+                "Multi-variation listing (SELLER_DEFINED_VARIATIONS): price reflects entry tier, not 128GB/256GB"
+            )
+
+        # 3. Check for RAM ranges or multi-options in title (e.g. 16GB-128GB, 36GB-128GB)
+        ram_range_match = re.search(r"\b\d+\s*(?:gb|g)?\s*[-–/]\s*\d+\s*(?:gb|g)?\s*(?:ram|memory)?\b", title_lower)
+        if ram_range_match:
+            matched_range = ram_range_match.group(0)
+            if "gb" in matched_range or "ram" in matched_range or "memory" in matched_range:
+                return MatchResult(False, f"Multi-option RAM range in title: '{matched_range}' (base price reflects lowest spec)")
+
+        # 4. Check for multiple processor generations listed together (e.g. M1 M2 M3 Max)
+        if re.search(r"\bm[12]\b.*\bm[345]\b", title_lower):
+            return MatchResult(False, "Title lists multiple processor generations (M1/M2 mixed with M3+)")
+
+        # 5. Check for multi-variation picker keywords
+        if re.search(r"\b(?:choose|select)\s+(?:specs|ram|model|color|options)\b", title_lower) or re.search(r"-\s*choose\s+specs\s*-", title_lower):
+            return MatchResult(False, "Multi-variation picker listing (choose/select specs)")
+
+        # 6. Check parts / repair
         if not self.include_parts:
             # Check condition from summary
             condition = (item_summary.get("condition") or "").lower()
