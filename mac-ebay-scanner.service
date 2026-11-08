@@ -1,0 +1,17 @@
+[Unit]
+Description=MacEbayScanner - 24/7 eBay Monitor for M3+ 128GB Macs & Price Trends
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/encoder1/MacEbayScanner
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/encoder1/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /home/encoder1/MacEbayScanner/main.py scan --interval 180
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
