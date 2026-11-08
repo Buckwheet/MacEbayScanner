@@ -39,6 +39,21 @@ def cmd_build_site(args):
     console.print(f"Files: index.html, data.json")
 
 
+def cmd_reconcile(args):
+    """Reconcile all seen items against current filter criteria."""
+    config = get_config()
+    console.print(Panel("[bold cyan]Reconciling Database Items with Filter Engine[/bold cyan]"))
+    storage = SeenStorage(db_path=config.db_path)
+    res = storage.reconcile_all_items()
+    console.print(f"[green]✓ Reconciliation complete:[/green]")
+    console.print(f"  Promoted to matched: {res['promoted']}")
+    console.print(f"  Demoted to filtered: {res['demoted']}")
+    console.print(f"  Reasons updated:     {res['updated_reason']}")
+
+    if getattr(args, "build_site", False):
+        cmd_build_site(args)
+
+
 def cmd_digest(args):
     """Test or manually trigger the 5:00 AM overnight summary digest."""
     config = get_config()
@@ -364,10 +379,16 @@ def main():
     matches_parser = subparsers.add_parser("matches", help="List matches saved in database")
     matches_parser.add_argument("--limit", type=int, default=20, help="Max matches to display")
 
+    # reconcile
+    reconcile_parser = subparsers.add_parser("reconcile", help="Reconcile database items with filter criteria")
+    reconcile_parser.add_argument("--build-site", action="store_true", help="Automatically rebuild site after reconcile")
+
     args = parser.parse_args()
 
     if args.command == "build-site":
         cmd_build_site(args)
+    elif args.command == "reconcile":
+        cmd_reconcile(args)
     elif args.command == "digest":
         cmd_digest(args)
     elif args.command == "test-loq":

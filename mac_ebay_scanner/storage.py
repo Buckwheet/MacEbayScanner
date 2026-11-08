@@ -85,11 +85,11 @@ class SeenStorage:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_item ON price_history(item_id);")
             conn.commit()
 
-        # Re-evaluate any legacy unmatched items against latest filter criteria
+        # Re-evaluate any legacy items against latest filter criteria
         try:
-            self.reconcile_unmatched_items()
+            self.reconcile_all_items()
         except Exception as e:
-            logger.warning(f"Could not reconcile unmatched items during init: {e}")
+            logger.warning(f"Could not reconcile items during init: {e}")
 
     def is_seen(self, item_id: str, legacy_item_id: Optional[str] = None) -> bool:
         """Check if an item has already been processed."""
@@ -500,17 +500,18 @@ class SeenStorage:
             )
             return [dict(r) for r in cursor.fetchall()]
 
-    def reconcile_unmatched_items(self) -> int:
-        """Re-evaluate all items previously recorded as matched=0 against current filter criteria."""
+    def reconcile_all_items(self) -> Dict[str, int]:
+        """Re-evaluate all items against current filter criteria to promote or demote as criteria evolve."""
         from .filter_engine import MacFilterEngine
         engine = MacFilterEngine()
 
+        stats = {"promoted": 0, "demoted": 0, "updated_reason": 0}
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT item_id, title, price, currency, raw_json FROM seen_items WHERE matched = 0")
+            cursor.execute("SELECT item_id, title, price, currency, matched, filter_reason, raw_json FROM seen_items")
             rows = cursor.fetchall()
 
-            upgraded = 0
             for r in rows:
                 raw_json = r["raw_json"]
                 if not raw_json:
@@ -521,7 +522,9 @@ class SeenStorage:
                     continue
 
                 res = engine.evaluate_item(item_data)
-                if res.matched:
+                curr_matched = r["matched"]
+
+                if res.matched and curr_matched == 0:
                     conn.execute(
                         """
                         UPDATE seen_items
@@ -541,13 +544,35 @@ class SeenStorage:
                             "INSERT OR IGNORE INTO price_history (item_id, price, currency, recorded_at) VALUES (?, ?, ?, ?)",
                             (r["item_id"], price, r["currency"] or "USD", now),
                         )
-                    upgraded += 1
-                else:
+                    stats["promoted"] += 1
+
+                elif not res.matched and curr_matched == 1:
                     conn.execute(
-                        "UPDATE seen_items SET filter_reason = ? WHERE item_id = ?",
+                        """
+                        UPDATE seen_items
+                        SET matched = 0,
+                            filter_reason = ?
+                        WHERE item_id = ?
+                        """,
                         (res.reason, r["item_id"]),
                     )
+                    stats["demoted"] += 1
+
+                elif not res.matched and curr_matched == 0:
+                    if r["filter_reason"] != res.reason:
+                        conn.execute(
+                            "UPDATE seen_items SET filter_reason = ? WHERE item_id = ?",
+                            (res.reason, r["item_id"]),
+                        )
+                        stats["updated_reason"] += 1
+
             conn.commit()
-            if upgraded > 0:
-                logger.info(f"Reconciled and rescued {upgraded} listings that now match target criteria.")
-        return upgraded
+            if stats["promoted"] > 0 or stats["demoted"] > 0:
+                logger.info(
+                    f"Reconciliation complete: {stats['promoted']} promoted, {stats['demoted']} demoted."
+                )
+        return stats
+
+    def reconcile_unmatched_items(self) -> int:
+        """Re-evaluate all items previously recorded as matched=0 against current filter criteria."""
+        return self.reconcile_all_items()["promoted"]
