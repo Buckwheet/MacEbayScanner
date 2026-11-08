@@ -142,9 +142,18 @@ def generate_static_site(
           <p class="text-xs text-gray-400">eBay monitor for M3+ MacBook Pro & Mac Studio (128GB & 256GB Unified Memory)</p>
         </div>
       </div>
-      <div class="text-xs text-gray-400 text-center md:text-right flex flex-col gap-0.5">
-        <div><i class="fas fa-satellite-dish text-blue-400 mr-1.5"></i> Scanned by <span class="font-semibold text-gray-300">encoder1</span> (Every 3 mins)</div>
-        <div class="text-gray-400">Last Scan: <span class="text-emerald-400 font-semibold">{time_only_str}</span> • Last New Match: <span class="text-gray-300 font-medium">{last_match_time_str}</span></div>
+      <div class="text-xs text-gray-400 text-center md:text-right flex flex-col gap-1 items-center md:items-end">
+        <div class="flex items-center gap-2">
+          <span><i class="fas fa-satellite-dish text-blue-400 mr-1"></i> <span class="font-semibold text-gray-300">encoder1</span> (Every 3 mins)</span>
+          <button onclick="triggerImmediateRefresh()" title="Click to refresh listings now" class="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-lg bg-gray-800/90 text-gray-300 hover:text-white hover:bg-gray-700 border border-gray-700/60 transition cursor-pointer">
+            <i class="fas fa-arrows-rotate text-blue-400" id="refreshIcon"></i>
+            <span>Refresh: <span id="autoRefreshTimer" class="font-mono text-white font-semibold">3:00</span></span>
+          </button>
+        </div>
+        <div class="text-gray-400">
+          Last Scan: <span id="lastScanTime" class="text-emerald-400 font-semibold">{time_only_str}</span> • 
+          Last Match: <span id="lastMatchTime" class="text-gray-300 font-medium">{last_match_time_str}</span>
+        </div>
       </div>
     </div>
   </header>
@@ -161,11 +170,11 @@ def generate_static_site(
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Evaluated Today</div>
-        <div class="text-sm font-bold text-white mt-0.5">{db_stats["total_seen"]} listings</div>
+        <div id="evaluatedCount" class="text-sm font-bold text-white mt-0.5">{db_stats["total_seen"]} listings</div>
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Matching Machines</div>
-        <div class="text-sm font-bold text-blue-400 mt-0.5">{len(processed_items)} verified</div>
+        <div id="matchingCount" class="text-sm font-bold text-blue-400 mt-0.5">{len(processed_items)} verified</div>
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">AI Evaluator</div>
@@ -223,8 +232,70 @@ def generate_static_site(
   </main>
 
   <script>
-    const DATA = {json.dumps(site_data)};
+    let DATA = {json.dumps(site_data)};
     let currentFilter = 'all';
+
+    const REFRESH_INTERVAL_MS = 180000; // 3 minutes
+    let nextRefreshEpoch = Date.now() + REFRESH_INTERVAL_MS;
+    let isFetching = false;
+
+    function updateRefreshTimer() {{
+      const remainingSec = Math.max(0, Math.round((nextRefreshEpoch - Date.now()) / 1000));
+      const min = Math.floor(remainingSec / 60);
+      const sec = remainingSec % 60;
+      const timerElem = document.getElementById('autoRefreshTimer');
+      if (timerElem) {{
+        timerElem.innerText = `${{min}}:${{sec < 10 ? '0' : ''}}${{sec}}`;
+      }}
+      if (remainingSec <= 0 && !isFetching) {{
+        checkAndRefreshData();
+      }}
+    }}
+
+    async function checkAndRefreshData() {{
+      if (isFetching) return;
+      isFetching = true;
+      const icon = document.getElementById('refreshIcon');
+      if (icon) icon.classList.add('fa-spin');
+
+      try {{
+        const resp = await fetch(`data.json?t=${{Date.now()}}`, {{ cache: 'no-store' }});
+        if (resp.ok) {{
+          const freshData = await resp.json();
+          DATA = freshData;
+
+          const scanElem = document.getElementById('lastScanTime');
+          if (scanElem && freshData.last_scanned_short) scanElem.innerText = freshData.last_scanned_short;
+
+          const matchElem = document.getElementById('lastMatchTime');
+          if (matchElem && freshData.last_match_time) matchElem.innerText = freshData.last_match_time;
+
+          const evalElem = document.getElementById('evaluatedCount');
+          if (evalElem && freshData.total_processed !== undefined) evalElem.innerText = `${{freshData.total_processed}} listings`;
+
+          const matchCountElem = document.getElementById('matchingCount');
+          if (matchCountElem && freshData.total_matches !== undefined) matchCountElem.innerText = `${{freshData.total_matches}} verified`;
+
+          renderStats();
+          applyFilters();
+        }} else {{
+          console.warn('Auto-refresh HTTP', resp.status, '- attempting reload');
+          window.location.reload();
+        }}
+      }} catch (err) {{
+        console.warn('Auto-refresh fetch error:', err);
+      }} finally {{
+        nextRefreshEpoch = Date.now() + REFRESH_INTERVAL_MS;
+        isFetching = false;
+        if (icon) icon.classList.remove('fa-spin');
+      }}
+    }}
+
+    function triggerImmediateRefresh() {{
+      checkAndRefreshData();
+    }}
+
+    setInterval(updateRefreshTimer, 1000);
 
     function renderStats() {{
       const grid = document.getElementById('statsGrid');
