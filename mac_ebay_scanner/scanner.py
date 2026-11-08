@@ -102,6 +102,11 @@ class MacEbayScanner:
 
             import subprocess
             repo_dir = str(self.config.db_path.parent.parent)
+
+            # Ensure we are in sync with remote before committing and pushing
+            subprocess.run(["git", "fetch", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=15)
+            subprocess.run(["git", "rebase", "origin/main"], cwd=repo_dir, capture_output=True, timeout=15)
+
             subprocess.run(["git", "add", "docs/"], cwd=repo_dir, capture_output=True, timeout=10)
             commit_msg = f"Auto-update live Mac listings (Scan {now_cst.strftime('%I:%M %p CST')}) [skip ci]"
             res = subprocess.run(
@@ -111,8 +116,17 @@ class MacEbayScanner:
                 timeout=10,
             )
             if res.returncode == 0:
-                subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=20)
-                logger.info(f"GitHub Pages updated and pushed successfully ({commit_msg}).")
+                push_res = subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=30)
+                if push_res.returncode != 0:
+                    # Attempt rebase and retry push once if origin moved
+                    subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=30)
+                    push_res = subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=30)
+
+                if push_res.returncode == 0:
+                    logger.info(f"GitHub Pages updated and pushed successfully ({commit_msg}).")
+                else:
+                    err = push_res.stderr.decode("utf-8", errors="ignore").strip()
+                    logger.warning(f"Failed to push GitHub Pages update: {err}")
             self._last_site_push_time = now
         except Exception as e:
             logger.warning(f"Could not auto-publish to GitHub Pages: {e}")
