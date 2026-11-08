@@ -83,12 +83,12 @@ Listing Details:
 - Detected Specs: {detected_model}, {detected_chip}, {detected_ram}
 {market_context}
 Task:
-1. Verify this is a working 128GB or 256GB RAM Apple Silicon M3+ computer (not parts, lock, or accessory).
+1. Determine if this listing is a genuine, working Apple computer meeting target criteria (set is_valid_hardware=false ONLY if broken, parts, locked, or accessory).
 2. Assess qualitative value (look for SSD upgrades like 2TB/4TB/8TB, 100% battery, AppleCare+, or condition flaws).
 
 Output strictly a JSON object:
 {{
-  "approved": true or false,
+  "is_valid_hardware": true or false,
   "confidence": float between 0.0 and 1.0,
   "value_assessment": "1 sharp sentence evaluating the deal quality factoring in storage/condition relative to price",
   "is_exceptional_deal": true or false

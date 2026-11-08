@@ -239,13 +239,6 @@ class MacEbayScanner:
                             market_avg=mkt_avg,
                             discount_pct=discount_pct if is_deal else None,
                         )
-                        if not llm_eval.get("approved", True):
-                            logger.info(
-                                f"LOQ LLM REJECTED listing: '{title}' - {llm_eval.get('analysis')}"
-                            )
-                            self.storage.record_item(item=item, matched=False, notified=False)
-                            continue
-
                         llm_analysis_text = llm_eval.get("value_assessment") or llm_eval.get("analysis")
 
                     matches_found += 1

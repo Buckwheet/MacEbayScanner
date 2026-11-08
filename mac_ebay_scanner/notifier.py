@@ -106,9 +106,14 @@ class PushbulletNotifier:
             f"Price: ${price_val} {currency}",
         ]
         if market_avg is not None:
-            diff = market_avg - float(price_val)
-            pct_str = f"(-{discount_pct:.1f}%)" if diff > 0 else f"(+{abs(discount_pct or 0):.1f}%)"
-            body_lines.append(f"Market Average: ${market_avg:.2f} {currency} {pct_str}")
+            try:
+                p_val = float(price_val)
+                diff = market_avg - p_val
+                pct = discount_pct if discount_pct is not None else ((diff / market_avg) * 100.0 if market_avg > 0 else 0.0)
+                pct_str = f"(-{pct:.1f}%)" if diff > 0 else f"(+{abs(pct):.1f}%)"
+                body_lines.append(f"Market Average: ${market_avg:.2f} {currency} {pct_str}")
+            except Exception:
+                body_lines.append(f"Market Average: ${market_avg:.2f} {currency}")
 
         body_lines.extend([
             f"Condition: {condition}",
