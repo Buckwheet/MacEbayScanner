@@ -1,39 +1,35 @@
 # PROJECT_STATE.md
 
 ## Goal
-Fix multi-variation / range listing false positives (such as item 266752480393) where sellers list multiple configurations (e.g. "M1 M2 M3 Max 16GB-128GB RAM") with entry-level pricing ($1,349) reflecting base 16GB models instead of 128GB/256GB target machines.
+Fix price-drop notification bug on unmatched/filtered items (which sent an erroneous price-drop Pushbullet notification for a "MacBook Neo") and verify multi-variation listing 188817784292 is strictly excluded and cannot trigger alerts.
 
 ## What Changed
-- Diagnosed listing `266752480393`:
-  - Title: `Apple MacBook Pro 16” (2021-2023) M1 M2 M3 Max 40-C 16GB- 128GB RAM 512GB- 8TB`
-  - Price: `$1,349.00`
-  - eBay API metadata: `itemGroupType: SELLER_DEFINED_VARIATIONS`
-  - Root cause: Multi-variation dropdown listing where eBay's search API returns the entry-level baseline price ($1,349 for 16GB M1), but the seller stuffed all upper configurations (M3 Max, 128GB RAM, 8TB) into the single title.
-- Hardened filter engine in `mac_ebay_scanner/filter_engine.py`:
-  - Rejects `itemGroupType == "SELLER_DEFINED_VARIATIONS"`.
-  - Rejects title RAM ranges (`\b\d+\s*(?:gb|g)?\s*[-–/]\s*\d+\s*(?:gb|g)?\s*(?:ram|memory)?\b`).
-  - Rejects mixed processor generations (`\bm[12]\b.*\bm[345]\b`).
-  - Rejects configuration pickers (`choose specs`, `select specs`).
-- Upgraded `SeenStorage.reconcile_all_items()` in `mac_ebay_scanner/storage.py` and added `reconcile` CLI command in `mac_ebay_scanner/cli.py`.
-- Unit tests added to `tests/test_filter_engine.py` (20 of 20 tests pass).
-- Deployed to remote host `encoder1`, reconciled `seen_items.db` (demoting 6 deceptive variation listings), rebuilt dashboard docs, pushed changes to GitHub Pages, and restarted `mac-ebay-scanner.service`.
+- Diagnosed root cause of the "MacBook Neo" Pushbullet notification:
+  - An eBay listing for `New 2026 Apple MacBook Neo 13" A18 Pro 5C GPU 4.0GHz 8GB RAM 256GB SSD` was correctly rejected as `matched=0` ("Not a MacBook Pro or Mac Studio").
+  - However, when the seller dropped the price from $664.99 to $630.99, `scanner.py` checked `is_seen(item_id)` and called `check_and_update_price()`. Because `scanner.py` and `storage.py` did not gate price-drop alerts on `matched == 1`, it detected a price drop on this unmatched item, defaulted its model to "MacBook Pro", and sent a Pushbullet alert.
+- Diagnosed listing `188817784292`:
+  - `2023 Apple MacBook Pro M3 Max 16.2-inch 36GB-128GB RAM, 1TB-8TB SSD, All Colors` ($2,199).
+  - Already classified with `matched=0` and `filter_reason: Multi-variation listing (SELLER_DEFINED_VARIATIONS)`.
+  - Cleared legacy model/chip/ram metadata on demoted items so they cannot be misattributed.
+- Hardened `storage.py`, `scanner.py`, and `filter_engine.py`:
+  - `storage.py`: In `check_and_update_price()`, if `not existing.get("matched")`, update the price in `seen_items` but NEVER record in `price_history` and return `is_price_drop=False`.
+  - `scanner.py`: In `scan_once()`, explicitly check `is_matched = bool(existing_rec.get("matched"))` before processing any price drop or sending a notification.
+  - `filter_engine.py`: Explicitly rejects non-target models (`macbook neo`, `neo`, `macbook air`, etc.) and non-M series mobile chips (`A18 Pro`, `A17`, etc.).
+  - Added unit tests: `test_reject_macbook_neo_and_a_series_chip` and `test_unmatched_item_never_triggers_price_drop`. (22/22 unit tests passing).
 
 ## Commands Run + Results
-- `pytest tests -v` -> 20 passed in 0.40s.
-- `ssh encoder1 "python3 main.py reconcile --build-site"` -> Successfully demoted variation listings and rebuilt site.
-- `systemctl --user restart mac-ebay-scanner.service` -> Scanner service running cleanly on encoder1.
-- `python -c "..."` -> Verified item `266752480393` is moved to `Filtered Out` with reason: `Multi-variation listing (SELLER_DEFINED_VARIATIONS): price reflects entry tier, not 128GB/256GB`. Minimum price for MacBook Pro M3 MAX 128GB corrected to true hardware baseline of $3,690.
+- `pytest tests -v` -> 22 passed in 0.67s.
+- Local tests verified unmatched items cannot trigger price-drop notifications or record price history.
 
 ## Files Touched
-- `mac_ebay_scanner/filter_engine.py`
+- `mac_ebay_scanner/scanner.py`
 - `mac_ebay_scanner/storage.py`
-- `mac_ebay_scanner/cli.py`
+- `mac_ebay_scanner/filter_engine.py`
 - `tests/test_filter_engine.py`
-- `docs/data.json`
-- `docs/index.html`
+- `tests/test_market_and_pricing.py`
 - `PROJECT_STATE.md`
 
 ## Next 3 Actions
-- [x] Reject multi-variation (`SELLER_DEFINED_VARIATIONS`) and title range listings.
-- [x] Add unit tests and reconcile database on `encoder1`.
-- [x] Verify GitHub Pages dashboard and trend metrics reflect only true 128GB/256GB hardware.
+- [ ] Commit and push code changes to GitHub repository.
+- [ ] Pull changes onto `encoder1`, clean any errant price history for non-target items, and restart `mac-ebay-scanner.service`.
+- [ ] Verify `encoder1` journalctl and confirm system is operating cleanly without spurious alerts.

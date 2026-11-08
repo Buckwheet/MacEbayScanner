@@ -26,7 +26,7 @@ class MacFilterEngine:
         r"\b(box only|empty box|box|dummy|packaging only)\b",
         r"\b(decal|sticker)\b",
         # Non-target Mac models
-        r"\b(macbook air|mac\s*mini|imac)\b",
+        r"\b(macbook air|mac\s*mini|imac|macbook\s*neo|neo)\b",
     ]
 
     PARTS_REPAIR_PATTERNS = [
@@ -38,6 +38,7 @@ class MacFilterEngine:
         r"\b(m1|m1 pro|m1 max|m1 ultra)\b",
         r"\b(m2|m2 pro|m2 max|m2 ultra)\b",
         r"\b(intel|i3|i5|i7|i9|xeon|core 2 duo)\b",
+        r"\b(a1[4-9]\s*(?:pro|bionic)?|snapdragon|amd|ryzen)\b",
     ]
 
     # Target chips: M3, M4, M5, M6, M7, M8...
@@ -134,6 +135,9 @@ class MacFilterEngine:
                     return MatchResult(False, "Listing is box only")
 
         # 4. Target Model Detection (MacBook Pro OR Mac Studio)
+        if re.search(r"\b(macbook\s*neo|neo|macbook\s*air|mac\s*mini|imac)\b", title_lower):
+            return MatchResult(False, "Non-target Mac model (Neo/Air/Mini/iMac)")
+
         is_mbp = bool(re.search(r"\bmacbook\s*pro\b", title_lower))
         is_studio = bool(re.search(r"\bmac\s*studio\b", title_lower))
 

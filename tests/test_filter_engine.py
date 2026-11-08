@@ -192,3 +192,13 @@ def test_reject_mixed_chip_generations_in_title(engine):
     res = engine.evaluate_item(summary)
     assert res.matched is False
     assert "multiple" in res.reason.lower() or "m1" in res.reason.lower()
+
+
+def test_reject_macbook_neo_and_a_series_chip(engine):
+    summary = {
+        "title": "New 2026 Apple MacBook Neo 13\" A18 Pro 5C GPU 4.0GHz 8GB RAM 256GB SSD MHFA4LL/A",
+        "price": {"value": "630.99", "currency": "USD"},
+    }
+    res = engine.evaluate_item(summary)
+    assert res.matched is False
+    assert "Neo" in res.reason or "Not a MacBook Pro" in res.reason or "chip" in res.reason.lower()

@@ -193,6 +193,18 @@ class SeenStorage:
         old_price = float(existing["price"])
         now = datetime.now(timezone.utc).isoformat()
 
+        # If the item is not a matched target machine, update its price in seen_items
+        # but NEVER trigger price-drop alerts or append to price_history
+        if not existing.get("matched"):
+            if current_price != old_price:
+                with self._get_connection() as conn:
+                    conn.execute(
+                        "UPDATE seen_items SET price = ?, currency = ?, last_updated_at = ? WHERE item_id = ?",
+                        (current_price, currency, now, item_id),
+                    )
+                    conn.commit()
+            return False, old_price, None, None
+
         if current_price < old_price:
             drop_amount = old_price - current_price
             drop_pct = (drop_amount / old_price) * 100.0
@@ -551,6 +563,9 @@ class SeenStorage:
                         """
                         UPDATE seen_items
                         SET matched = 0,
+                            model = NULL,
+                            chip = NULL,
+                            ram = NULL,
                             filter_reason = ?
                         WHERE item_id = ?
                         """,

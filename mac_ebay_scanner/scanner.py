@@ -166,15 +166,18 @@ class MacEbayScanner:
 
                 # Check if item is already seen
                 if self.storage.is_seen(item_id, legacy_id):
+                    existing_rec = self.storage.get_item(item_id) or {}
+                    is_matched = bool(existing_rec.get("matched"))
+
                     is_drop, old_price, drop_amt, drop_pct = self.storage.check_and_update_price(
                         item_id=item_id,
                         current_price=current_price,
                         currency=currency,
                         min_pct_drop=self.config.price_drop_min_percent,
                     )
-                    if is_drop and old_price is not None:
+                    # Strictly restrict price drop alerts and notifications to matched items
+                    if is_matched and is_drop and old_price is not None:
                         price_drops_detected += 1
-                        existing_rec = self.storage.get_item(item_id) or {}
                         det_model = existing_rec.get("model") or "MacBook Pro"
                         det_chip = existing_rec.get("chip") or "M3+"
                         det_ram = existing_rec.get("ram") or "128GB"
@@ -188,7 +191,7 @@ class MacEbayScanner:
                         )
 
                         logger.info(
-                            f"PRICE DROP DETECTED: {item.get('title')} | "
+                            f"PRICE DROP DETECTED on matched item: {item.get('title')} | "
                             f"${old_price:.2f} -> ${current_price:.2f} (-{drop_pct:.1f}%)"
                         )
 

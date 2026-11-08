@@ -73,3 +73,28 @@ def test_market_statistics_and_deal_evaluation(temp_storage):
     assert is_deal is True
     assert avg_p == 5100.00
     assert disc_pct > 20.0
+
+
+def test_unmatched_item_never_triggers_price_drop(temp_storage):
+    item = {
+        "itemId": "v1|neo_999|0",
+        "title": "New 2026 Apple MacBook Neo 13\" A18 Pro 8GB RAM 256GB SSD",
+        "price": {"value": "664.99", "currency": "USD"},
+    }
+
+    # Record unmatched item
+    temp_storage.record_item(
+        item=item,
+        matched=False,
+        filter_reason="Not a MacBook Pro or Mac Studio",
+    )
+
+    # Price drops from $664.99 to $630.99 (>5% drop)
+    is_drop, old_p, drop_amt, drop_pct = temp_storage.check_and_update_price("v1|neo_999|0", 630.99, min_pct_drop=3.0)
+    assert is_drop is False
+    assert old_p == 664.99
+
+    # Verify no price history was recorded for unmatched items
+    with temp_storage._get_connection() as conn:
+        ph = conn.execute("SELECT count(*) as c FROM price_history WHERE item_id = 'v1|neo_999|0'").fetchone()["c"]
+        assert ph == 0
