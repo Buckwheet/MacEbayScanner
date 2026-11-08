@@ -479,6 +479,24 @@ class SeenStorage:
                 "overnight_queued_items": queued_count,
             }
 
+    def get_price_history_map(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Retrieve full recorded price history grouped by item_id ordered chronologically."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_id, price, currency, recorded_at FROM price_history ORDER BY id ASC")
+            rows = cursor.fetchall()
+            history: Dict[str, List[Dict[str, Any]]] = {}
+            for r in rows:
+                iid = r["item_id"]
+                if iid not in history:
+                    history[iid] = []
+                history[iid].append({
+                    "price": r["price"],
+                    "currency": r["currency"],
+                    "recorded_at": r["recorded_at"],
+                })
+            return history
+
     def get_matched_items(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieve recent matched items."""
         with self._get_connection() as conn:
@@ -486,7 +504,7 @@ class SeenStorage:
             cursor.execute(
                 """
                 SELECT item_id, title, price, currency, url, model, chip, ram, condition, seller,
-                       llm_analysis, first_seen_at
+                       llm_analysis, first_seen_at, last_updated_at
                 FROM seen_items
                 WHERE matched = 1
                 ORDER BY first_seen_at DESC
@@ -503,7 +521,7 @@ class SeenStorage:
             cursor.execute(
                 """
                 SELECT item_id, title, price, currency, url, model, chip, ram, matched, condition, seller,
-                       llm_analysis, filter_reason, first_seen_at, raw_json
+                       llm_analysis, filter_reason, first_seen_at, last_updated_at, raw_json
                 FROM seen_items
                 ORDER BY matched DESC, first_seen_at DESC
                 LIMIT ?

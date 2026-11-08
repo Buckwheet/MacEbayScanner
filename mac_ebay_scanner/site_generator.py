@@ -86,12 +86,13 @@ def generate_static_site(
     from .filter_engine import MacFilterEngine
     filter_engine = MacFilterEngine()
 
-    # Get stats, market statistics, and all seen items
+    # Get stats, market statistics, price history, and all seen items
     db_stats = storage.get_stats()
     market_stats = storage.get_market_statistics()
     all_seen = storage.get_all_seen_items(limit=1000)
     matched_items = [it for it in all_seen if it.get("matched") == 1]
     filtered_items = [it for it in all_seen if it.get("matched") != 1]
+    price_history_map = storage.get_price_history_map()
 
     # Format the time of the most recent match
     last_match_time_str = "None yet"
@@ -166,6 +167,49 @@ def generate_static_site(
             price=price if is_matched else 0.0,
         )
 
+        # Discovery and price change tracking
+        first_seen_at = it.get("first_seen_at", "")
+        last_updated_at = it.get("last_updated_at")
+
+        discovered_str = ""
+        if first_seen_at:
+            try:
+                d_dt = datetime.fromisoformat(first_seen_at).astimezone(cst_tz)
+                discovered_str = d_dt.strftime("%b %d, %I:%M %p CST")
+            except Exception:
+                discovered_str = str(first_seen_at)[:16]
+
+        has_price_change = False
+        previous_price = None
+        price_change_diff = 0.0
+        price_change_pct = 0.0
+        updated_str = ""
+
+        item_history = price_history_map.get(it["item_id"], [])
+        if len(item_history) >= 2:
+            prev_record = item_history[-2]
+            curr_record = item_history[-1]
+            if prev_record["price"] != curr_record["price"]:
+                has_price_change = True
+                previous_price = prev_record["price"]
+                price_change_diff = round(price - previous_price, 2)
+                if previous_price > 0:
+                    price_change_pct = round((price_change_diff / previous_price) * 100.0, 1)
+                updated_ts = last_updated_at or curr_record.get("recorded_at")
+                if updated_ts:
+                    try:
+                        u_dt = datetime.fromisoformat(updated_ts).astimezone(cst_tz)
+                        updated_str = u_dt.strftime("%b %d, %I:%M %p CST")
+                    except Exception:
+                        updated_str = str(updated_ts)[:16]
+        elif last_updated_at and first_seen_at and last_updated_at != first_seen_at:
+            has_price_change = True
+            try:
+                u_dt = datetime.fromisoformat(last_updated_at).astimezone(cst_tz)
+                updated_str = u_dt.strftime("%b %d, %I:%M %p CST")
+            except Exception:
+                updated_str = str(last_updated_at)[:16]
+
         processed_items.append({
             "item_id": it["item_id"],
             "title": it["title"],
@@ -191,7 +235,14 @@ def generate_static_site(
             "tok_s_27b": hw_metrics["tok_s_27b"],
             "tok_s_70b": hw_metrics["tok_s_70b"],
             "llm_value_score": hw_metrics["llm_value_score"],
-            "first_seen_at": it.get("first_seen_at", ""),
+            "first_seen_at": first_seen_at,
+            "discovered_str": discovered_str,
+            "last_updated_at": last_updated_at,
+            "updated_str": updated_str,
+            "has_price_change": has_price_change,
+            "previous_price": previous_price,
+            "price_change_diff": price_change_diff,
+            "price_change_pct": price_change_pct,
         })
 
     trend_analysis = storage.get_detailed_trend_analysis()
@@ -202,6 +253,7 @@ def generate_static_site(
         t["tok_s_70b"] = hw["tok_s_70b"]
         t["llm_value_score"] = hw["llm_value_score"]
 
+    total_price_updates = sum(1 for it in processed_items if it.get("has_price_change"))
     site_data = {
         "last_scanned": timestamp_str,
         "last_scanned_short": time_only_str,
@@ -209,6 +261,7 @@ def generate_static_site(
         "total_processed": len(processed_items),
         "total_matches": len(matched_items),
         "total_filtered": len(filtered_items),
+        "total_price_updates": total_price_updates,
         "market_stats": market_stats,
         "trend_analysis": trend_analysis,
         "items": processed_items,
@@ -269,7 +322,7 @@ def generate_static_site(
   <main class="max-w-7xl mx-auto px-4 sm:px-6">
 
     <!-- Status Strip -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8">
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Scanner Status</div>
         <div class="text-sm font-semibold text-emerald-400 mt-0.5 flex items-center gap-1.5">
@@ -282,7 +335,11 @@ def generate_static_site(
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Matching Machines</div>
-        <div id="matchingCount" class="text-sm font-bold text-blue-400 mt-0.5">{len(processed_items)} verified</div>
+        <div id="matchingCount" class="text-sm font-bold text-blue-400 mt-0.5">{len(matched_items)} verified</div>
+      </div>
+      <div class="glass p-3 rounded-xl border border-gray-800/80">
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">Price Updates</div>
+        <div id="priceUpdatesCount" class="text-sm font-bold text-emerald-400 mt-0.5">{total_price_updates} tracked</div>
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">AI Evaluator</div>
@@ -324,6 +381,7 @@ def generate_static_site(
         <button onclick="setFilter('deal')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30" data-filter="deal">🔥 Deals Only</button>
         <button onclick="setFilter('ultra-bw')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30" data-filter="ultra-bw">🚀 Ultra Speed (800+ GB/s)</button>
         <button onclick="setFilter('high-bw')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30" data-filter="high-bw">⚡ High Speed (500+ GB/s)</button>
+        <button onclick="setFilter('updated')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25" data-filter="updated">🔄 Price Updated (<span id="updatedPillCount">0</span>)</button>
         <span id="activeFilterBadge" class="hidden text-xs px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium items-center gap-1.5">
           <span id="activeFilterText"></span>
           <button onclick="setFilter('all')" class="hover:text-white ml-1"><i class="fas fa-xmark"></i></button>
@@ -338,6 +396,9 @@ def generate_static_site(
         <select id="sortSelect" onchange="applyFilters()" class="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-white focus:outline-none focus:border-blue-500">
           <option value="value-desc">⚡ Best LLM Value (Tok/s per $)</option>
           <option value="speed-desc">🚀 Fastest LLM Speed (Raw Tok/s)</option>
+          <option value="discovered-desc">🕒 Newest Discovered</option>
+          <option value="discovered-asc">⏳ Oldest Discovered</option>
+          <option value="updated-desc">🔄 Recently Updated (Price Change)</option>
           <option value="price-asc">Price: Low to High</option>
           <option value="price-desc">Price: High to Low</option>
           <option value="discount-desc">Best Deal (% Under Market)</option>
@@ -427,6 +488,9 @@ def generate_static_site(
 
           const matchCountElem = document.getElementById('matchingCount');
           if (matchCountElem && freshData.total_matches !== undefined) matchCountElem.innerText = `${{freshData.total_matches}} verified`;
+
+          const updatesCountElem = document.getElementById('priceUpdatesCount');
+          if (updatesCountElem && freshData.total_price_updates !== undefined) updatesCountElem.innerText = `${{freshData.total_price_updates}} tracked`;
 
           renderTrends();
           applyFilters();
@@ -580,6 +644,24 @@ def generate_static_site(
       applyFilters();
     }}
 
+    function formatTimeAgo(isoStr) {{
+      if (!isoStr) return '';
+      try {{
+        const d = new Date(isoStr);
+        const diffMs = Date.now() - d.getTime();
+        if (diffMs < 0) return 'just now';
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${{mins}}m ago`;
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return `${{hours}}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${{days}}d ago`;
+      }} catch (e) {{
+        return '';
+      }}
+    }}
+
     function applyFilters() {{
       const query = document.getElementById('searchInput').value.toLowerCase();
       const sort = document.getElementById('sortSelect').value;
@@ -587,6 +669,7 @@ def generate_static_site(
       const matchedTotal = DATA.items.filter(it => it.is_matched).length;
       const filteredTotal = DATA.items.filter(it => !it.is_matched).length;
       const allTotal = DATA.items.length;
+      const updatedTotal = DATA.items.filter(it => it.has_price_change).length;
 
       const mTab = document.getElementById('matchedCountTab');
       if (mTab) mTab.innerText = matchedTotal;
@@ -594,6 +677,11 @@ def generate_static_site(
       if (fTab) fTab.innerText = filteredTotal;
       const aTab = document.getElementById('allCountTab');
       if (aTab) aTab.innerText = allTotal;
+
+      const uPill = document.getElementById('updatedPillCount');
+      if (uPill) uPill.innerText = updatedTotal;
+      const uStat = document.getElementById('priceUpdatesCount');
+      if (uStat) uStat.innerText = `${{updatedTotal}} tracked`;
 
       let items = DATA.items.filter(it => {{
         if (currentViewMode === 'matched' && !it.is_matched) return false;
@@ -603,6 +691,7 @@ def generate_static_site(
         if (currentFilter === 'Mac Studio' && it.model !== 'Mac Studio') return false;
         if (currentFilter === '256GB' && !it.ram.includes('256')) return false;
         if (currentFilter === 'deal' && !it.is_deal) return false;
+        if (currentFilter === 'updated' && !it.has_price_change) return false;
         if (currentFilter === 'ultra-bw' && (!it.bandwidth_gb_s || it.bandwidth_gb_s < 800)) return false;
         if (currentFilter === 'high-bw' && (!it.bandwidth_gb_s || it.bandwidth_gb_s < 500)) return false;
         if (currentFilter.startsWith('Mac') && it.category !== currentFilter) return false;
@@ -612,6 +701,16 @@ def generate_static_site(
 
       if (sort === 'value-desc') items.sort((a, b) => (b.llm_value_score || 0) - (a.llm_value_score || 0));
       else if (sort === 'speed-desc') items.sort((a, b) => (b.tok_s_27b || 0) - (a.tok_s_27b || 0));
+      else if (sort === 'discovered-desc') items.sort((a, b) => new Date(b.first_seen_at || 0) - new Date(a.first_seen_at || 0));
+      else if (sort === 'discovered-asc') items.sort((a, b) => new Date(a.first_seen_at || 0) - new Date(b.first_seen_at || 0));
+      else if (sort === 'updated-desc') items.sort((a, b) => {{
+        const bUpdated = b.has_price_change ? 1 : 0;
+        const aUpdated = a.has_price_change ? 1 : 0;
+        if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+        const bTime = new Date(b.last_updated_at || b.first_seen_at || 0);
+        const aTime = new Date(a.last_updated_at || a.first_seen_at || 0);
+        return bTime - aTime;
+      }});
       else if (sort === 'price-asc') items.sort((a, b) => a.price - b.price);
       else if (sort === 'price-desc') items.sort((a, b) => b.price - a.price);
       else if (sort === 'discount-desc') items.sort((a, b) => b.discount_pct - a.discount_pct);
@@ -660,7 +759,26 @@ def generate_static_site(
 
               <div class="flex items-baseline gap-2 mt-1">
                 <span class="text-xl font-bold text-gray-300">$${{it.price.toLocaleString()}}</span>
+                ${{it.has_price_change && it.previous_price ? `<span class="text-xs text-gray-500 line-through font-mono" title="Previous price before update">$${{it.previous_price.toLocaleString()}}</span>` : ''}}
                 <span class="text-xs text-gray-500">${{it.currency}}</span>
+              </div>
+
+              <!-- Discovered & Updated Strip -->
+              <div class="mt-2.5 pt-2 border-t border-gray-800/60 flex items-center justify-between text-[11px] text-gray-400 flex-wrap gap-2">
+                <div class="flex items-center gap-1.5">
+                  <i class="far fa-compass text-gray-500"></i>
+                  <span>Discovered:</span>
+                  <span class="text-gray-300 font-medium">${{it.discovered_str || (it.first_seen_at ? it.first_seen_at.slice(0, 16) : 'Unknown')}}</span>
+                  <span class="text-gray-500 font-mono text-[10px]">(${{formatTimeAgo(it.first_seen_at)}})</span>
+                </div>
+                ${{it.has_price_change ? `
+                <div class="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  <i class="fas fa-arrows-rotate text-emerald-400"></i>
+                  <span>Price Updated:</span>
+                  ${{it.previous_price ? `<span class="line-through text-gray-400 font-mono text-[10px]">$${{it.previous_price.toLocaleString()}}</span> &rarr;` : ''}}
+                  <span class="text-emerald-300 font-bold">$${{it.price.toLocaleString()}}</span>
+                  <span class="text-emerald-500 font-mono text-[10px]">(${{formatTimeAgo(it.last_updated_at)}})</span>
+                </div>` : ''}}
               </div>
             </div>
 
@@ -679,6 +797,11 @@ def generate_static_site(
 
         const dealBadge = it.is_deal ? 
           `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold">🔥 ${{it.discount_pct}}% Under Market</span>` : '';
+
+        const priceUpdateBadge = it.has_price_change ? 
+          `<span class="px-2 py-0.5 rounded-full ${{it.price_change_diff < 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}} text-[11px] font-bold flex items-center gap-1">
+            <i class="fas fa-arrows-rotate"></i> Price Updated ${{it.price_change_diff < 0 ? '-$' + Math.abs(it.price_change_diff).toLocaleString() : '+$' + it.price_change_diff.toLocaleString()}} (${{it.price_change_pct}}%)
+          </span>` : '';
 
         const aiSection = it.llm_analysis ? `
           <div class="mt-3 p-2.5 rounded-lg bg-gray-900/80 border border-gray-800 text-xs text-gray-300 leading-relaxed">
@@ -709,7 +832,10 @@ def generate_static_site(
                   <i class="fas fa-memory mr-1"></i>${{ramBadgeText}}
                 </span>
               </div>
-              ${{dealBadge}}
+              <div class="flex items-center gap-1.5 flex-wrap justify-end">
+                ${{dealBadge}}
+                ${{priceUpdateBadge}}
+              </div>
             </div>
 
             <div class="flex gap-4 items-start mb-3">
@@ -720,8 +846,11 @@ def generate_static_site(
               </div>
             </div>
 
-            <div class="flex items-baseline gap-2 mt-2">
+            <div class="flex items-baseline gap-2 mt-2 flex-wrap">
               <span class="text-2xl font-bold text-white">$${{it.price.toLocaleString()}}</span>
+              ${{it.has_price_change && it.previous_price ? `
+                <span class="text-xs text-gray-500 line-through font-mono" title="Previous price before update">$${{it.previous_price.toLocaleString()}}</span>
+              ` : ''}}
               <span class="text-xs text-gray-400">${{it.currency}}</span>
               ${{diffStr}}
             </div>
@@ -743,6 +872,23 @@ def generate_static_site(
             </div>
 
             ${{aiSection}}
+
+            <!-- Discovered & Updated Strip -->
+            <div class="mt-2.5 pt-2 border-t border-gray-800/70 flex items-center justify-between text-[11px] flex-wrap gap-2">
+              <div class="flex items-center gap-1.5 text-gray-400">
+                <i class="far fa-compass text-blue-400 text-xs"></i>
+                <span>Discovered:</span>
+                <span class="text-gray-200 font-medium">${{it.discovered_str || (it.first_seen_at ? it.first_seen_at.slice(0, 16) : 'Unknown')}}</span>
+                <span class="text-gray-500 font-mono text-[10px]">(${{formatTimeAgo(it.first_seen_at)}})</span>
+              </div>
+              ${{it.has_price_change ? `
+              <div class="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                <i class="fas fa-arrows-rotate text-emerald-400"></i>
+                <span>Updated (Price):</span>
+                <span class="text-emerald-300 font-semibold">${{it.updated_str || (it.last_updated_at ? it.last_updated_at.slice(0, 16) : '')}}</span>
+                <span class="text-emerald-500 font-mono text-[10px]">(${{formatTimeAgo(it.last_updated_at)}})</span>
+              </div>` : ''}}
+            </div>
           </div>
 
           <div class="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between">

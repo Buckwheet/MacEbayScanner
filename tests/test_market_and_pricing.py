@@ -122,3 +122,54 @@ def test_llm_hardware_metrics_calculation():
     assert ultra["tok_s_27b"] == 33.3
     assert ultra["tok_s_70b"] == 14.3
     assert ultra["llm_value_score"] == 3.76
+
+
+def test_discovered_and_price_update_tracking(temp_storage, tmp_path):
+    import json
+    from mac_ebay_scanner.site_generator import generate_static_site
+
+    item = {
+        "itemId": "v1|item_update_test|0",
+        "title": "Apple MacBook Pro 16\" M3 Max 128GB RAM 1TB SSD",
+        "price": {"value": "4500.00", "currency": "USD"},
+    }
+
+    temp_storage.record_item(
+        item=item,
+        matched=True,
+        detected_model="MacBook Pro",
+        detected_chip="Apple M3 Max",
+        detected_ram="128GB",
+    )
+
+    # Initial state: 1 price history record, no price change
+    h_map = temp_storage.get_price_history_map()
+    assert "v1|item_update_test|0" in h_map
+    assert len(h_map["v1|item_update_test|0"]) == 1
+
+    docs_dir = tmp_path / "docs"
+    generate_static_site(temp_storage, docs_dir)
+    data = json.loads((docs_dir / "data.json").read_text(encoding="utf-8"))
+    assert data["total_processed"] == 1
+    item_data = data["items"][0]
+    assert item_data["has_price_change"] is False
+    assert item_data["discovered_str"] != ""
+    assert "CST" in item_data["discovered_str"]
+
+    # Price drop from $4500 to $4200
+    temp_storage.check_and_update_price("v1|item_update_test|0", 4200.00)
+
+    h_map_after = temp_storage.get_price_history_map()
+    assert len(h_map_after["v1|item_update_test|0"]) == 2
+
+    generate_static_site(temp_storage, docs_dir)
+    data_after = json.loads((docs_dir / "data.json").read_text(encoding="utf-8"))
+    updated_item = data_after["items"][0]
+    assert updated_item["has_price_change"] is True
+    assert updated_item["previous_price"] == 4500.0
+    assert updated_item["price"] == 4200.0
+    assert updated_item["price_change_diff"] == -300.0
+    assert updated_item["price_change_pct"] == -6.7
+    assert updated_item["updated_str"] != ""
+    assert "CST" in updated_item["updated_str"]
+    assert data_after["total_price_updates"] == 1
