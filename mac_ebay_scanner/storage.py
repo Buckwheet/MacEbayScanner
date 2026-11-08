@@ -70,6 +70,10 @@ class SeenStorage:
             if "last_updated_at" not in columns:
                 conn.execute("ALTER TABLE seen_items ADD COLUMN last_updated_at TEXT")
 
+            # Automatically normalize any legacy or verbose RAM strings
+            conn.execute("UPDATE seen_items SET ram = '256GB' WHERE ram LIKE '%256%' AND ram != '256GB'")
+            conn.execute("UPDATE seen_items SET ram = '128GB' WHERE ram LIKE '%128%' AND ram != '128GB'")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_matched ON seen_items(matched);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_legacy ON seen_items(legacy_item_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_item ON price_history(item_id);")

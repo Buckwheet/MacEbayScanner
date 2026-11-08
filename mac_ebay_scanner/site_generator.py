@@ -47,7 +47,9 @@ def generate_static_site(
         price = it.get("price") or 0.0
         model = it.get("model") or "MacBook Pro"
         chip = it.get("chip") or "M3 Max"
-        ram = it.get("ram") or "128GB"
+        raw_ram = str(it.get("ram") or "128GB")
+        ram = "256GB" if "256" in raw_ram else "128GB"
+        ram_display = f"{ram} Unified Memory"
         cat_key = storage.get_category_key(model, chip, ram)
 
         stat = market_stats.get(cat_key, {})
@@ -84,6 +86,7 @@ def generate_static_site(
             "model": model,
             "chip": chip,
             "ram": ram,
+            "ram_display": ram_display,
             "condition": it.get("condition") or "Pre-owned",
             "seller": it.get("seller") or "eBay Seller",
             "llm_analysis": it.get("llm_analysis") or "",
@@ -384,10 +387,23 @@ def generate_static_site(
           `<img src="${{it.image_url}}" alt="Mac" class="w-20 h-20 object-cover rounded-xl border border-gray-800 shrink-0">` : 
           `<div class="w-20 h-20 rounded-xl bg-gray-800 flex items-center justify-center text-gray-600 shrink-0"><i class="fas fa-laptop text-2xl"></i></div>`;
 
+        const is256 = (it.ram && it.ram.includes('256')) || (it.title && it.title.includes('256'));
+        const ramBadgeClass = is256 
+          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+          : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30';
+        const ramBadgeText = is256 ? '256GB RAM' : '128GB RAM';
+        const ramFooterText = is256 ? '256GB Unified Memory' : '128GB Unified Memory';
+        const ramFooterColor = is256 ? 'text-purple-300 font-semibold' : 'text-gray-300 font-medium';
+
         card.innerHTML = `
           <div>
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-xs px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">${{it.model}} • ${{it.chip}}</span>
+            <div class="flex items-center justify-between mb-3 gap-2">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-xs px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">${{it.model}} • ${{it.chip}}</span>
+                <span class="text-xs px-2 py-0.5 rounded font-mono font-bold ${{ramBadgeClass}}">
+                  <i class="fas fa-memory mr-1"></i>${{ramBadgeText}}
+                </span>
+              </div>
               ${{dealBadge}}
             </div>
 
@@ -409,7 +425,10 @@ def generate_static_site(
           </div>
 
           <div class="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between">
-            <span class="text-xs text-gray-400 font-mono font-medium">${{it.ram}} Unified Memory</span>
+            <span class="text-xs ${{ramFooterColor}} font-mono flex items-center gap-1.5">
+              <i class="fas fa-microchip ${{is256 ? 'text-purple-400' : 'text-blue-400'}}"></i>
+              ${{ramFooterText}}
+            </span>
             <a href="${{it.url}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition">
               View on eBay <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
             </a>

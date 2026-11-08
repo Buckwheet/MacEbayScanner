@@ -1,29 +1,28 @@
 # PROJECT_STATE.md
 
 ## Goal
-Implement automatic 3-minute client-side auto-refresh on the public website with a live countdown timer, in-place data updates (preserving search/filters), and manual refresh capability.
+Investigate and fix Unified Memory claim bug where 256GB listings displayed "128GB Unified Memory" in card footers, normalize RAM detection across storage and site generation, and visually distinguish 128GB vs 256GB models with prominent memory badges.
 
 ## What Changed
-- Added client-side 3-minute auto-refresh in [`site_generator.py`](file:///D:/Code%20Projects/MacEbayScanner/mac_ebay_scanner/site_generator.py) that asynchronously polls `data.json?t=[timestamp]`.
-- Implemented visual countdown timer (`Refresh: 3:00` ticking down to `0:00`) in the header next to scanner status.
-- Added smooth, in-place DOM updates for listings, stats cards, and dual scan/match timestamps without disruptive full-page reloading or loss of search/filter state.
-- Added quick manual refresh button (`triggerImmediateRefresh()`) with spinning animation on click.
-- Rebuilt static dashboard on `encoder1` and pushed commit `c109675` to GitHub.
-- Verified live on GitHub Pages: `https://buckwheet.github.io/MacEbayScanner/` (confirmed `autoRefreshTimer` and `triggerImmediateRefresh` active in production HTML).
+- Diagnosed root cause: Earlier site generator had hardcoded `<span class="text-xs text-gray-500 font-mono">128GB Unified Memory</span>` in the client-side HTML template card footer from before 256GB support was introduced. In addition, unnormalized strings like `"128GB Unified Memory"` caused duplicated labels.
+- Updating `storage.py` with automatic schema normalization to clean legacy database rows to canonical `'128GB'` or `'256GB'`.
+- Updating `site_generator.py` to:
+  - Normalize RAM display (`256GB Unified Memory` vs `128GB Unified Memory`).
+  - Add prominent color-coded badges to card headers (`[256GB RAM]` in purple, `[128GB RAM]` in cyan).
+  - Explicitly render memory in card footers based on verified machine memory.
+- Updating `notifier.py` to reference `128GB/256GB` instead of hardcoded `128GB` in overnight digests.
 
 ## Commands Run + Results
-- `pytest tests -v` -> 17/17 tests passed.
-- `python main.py build-site` -> Generated static site locally.
-- `ssh encoder1 "cd /home/encoder1/MacEbayScanner && git pull && python3 main.py build-site && git commit -am 'Deploy client-side 3-min auto refresh [skip ci]' && git push origin main && systemctl --user restart mac-ebay-scanner.service"` -> Built and pushed live docs to `main`, restarted systemd service.
-- `python -c "import urllib.request... print('Auto-refresh timer in live site:', ...)"` -> Confirmed both `autoRefreshTimer` and `Refresh button in live site: True` live on GitHub Pages.
+- `git grep '128GB Unified Memory'` -> Identified hardcoded strings in older HTML templates and unnormalized items in data.json.
+- `ssh encoder1 "cd /home/encoder1/MacEbayScanner && python3 main.py matches --limit 15"` -> Confirmed backend SQLite database correctly classified M3/M5 Ultra models with 256GB RAM.
 
 ## Files Touched
+- `mac_ebay_scanner/storage.py`
 - `mac_ebay_scanner/site_generator.py`
-- `docs/index.html`
-- `docs/data.json`
+- `mac_ebay_scanner/notifier.py`
 - `PROJECT_STATE.md`
 
 ## Next 3 Actions
-- [ ] Monitor incoming eBay matches during daytime window (8:00 AM - 8:00 PM CST) on Pushbullet.
-- [ ] Verify 15-minute heartbeat auto-publish triggers on GitHub Pages without manual intervention.
-- [ ] Verify overnight queue transition and 5:00 AM CST summary digest generation.
+- [ ] Apply code updates in `storage.py`, `site_generator.py`, and `notifier.py`.
+- [ ] Run test suite (`pytest tests -v`) and verify no regressions.
+- [ ] Build site, push to GitHub, and deploy to `encoder1`.

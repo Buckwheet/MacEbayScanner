@@ -181,7 +181,7 @@ class PushbulletNotifier:
         count = len(items)
         if count == 0:
             title = "🌅 Overnight Mac Deals Digest"
-            body = f"Overnight scan complete. All queries monitored—no new M3+ 128GB listings overnight.\n\nView live dashboard: {dashboard_url}"
+            body = f"Overnight scan complete. All queries monitored—no new M3+ 128GB/256GB listings overnight.\n\nView live dashboard: {dashboard_url}"
             return self.send_notification(title=title, body=body, url=dashboard_url)
 
         # Sort items by best deal (lowest price or highest discount)
@@ -192,7 +192,7 @@ class PushbulletNotifier:
 
         title = f"🌅 Overnight Mac Deals Digest ({count} Active)"
         body_lines = [
-            f"Overnight scan complete. Tracking {count} matching M3+ 128GB Macs.\n",
+            f"Overnight scan complete. Tracking {count} matching M3+ 128GB/256GB Macs.\n",
             "🔥 Top Current Picks:",
         ]
 
@@ -200,7 +200,8 @@ class PushbulletNotifier:
             price_val = it.get("price", 0)
             m_chip = it.get("chip") or "M3+"
             m_mod = it.get("model") or "Mac"
-            body_lines.append(f"{idx}. {m_mod} ({m_chip}, 128GB) - ${price_val:,.2f}")
+            m_ram = "256GB" if "256" in (it.get("ram") or "") else "128GB"
+            body_lines.append(f"{idx}. {m_mod} ({m_chip}, {m_ram}) - ${price_val:,.2f}")
 
         body_lines.append(f"\n📊 Full live dashboard & price trends:")
         body_lines.append(dashboard_url)
