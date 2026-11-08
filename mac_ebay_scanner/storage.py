@@ -2,9 +2,12 @@ import sqlite3
 import json
 import statistics
 import re
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class SeenStorage:
@@ -81,6 +84,12 @@ class SeenStorage:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_legacy ON seen_items(legacy_item_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_item ON price_history(item_id);")
             conn.commit()
+
+        # Re-evaluate any legacy unmatched items against latest filter criteria
+        try:
+            self.reconcile_unmatched_items()
+        except Exception as e:
+            logger.warning(f"Could not reconcile unmatched items during init: {e}")
 
     def is_seen(self, item_id: str, legacy_item_id: Optional[str] = None) -> bool:
         """Check if an item has already been processed."""
@@ -490,3 +499,55 @@ class SeenStorage:
                 (limit,),
             )
             return [dict(r) for r in cursor.fetchall()]
+
+    def reconcile_unmatched_items(self) -> int:
+        """Re-evaluate all items previously recorded as matched=0 against current filter criteria."""
+        from .filter_engine import MacFilterEngine
+        engine = MacFilterEngine()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_id, title, price, currency, raw_json FROM seen_items WHERE matched = 0")
+            rows = cursor.fetchall()
+
+            upgraded = 0
+            for r in rows:
+                raw_json = r["raw_json"]
+                if not raw_json:
+                    continue
+                try:
+                    item_data = json.loads(raw_json)
+                except Exception:
+                    continue
+
+                res = engine.evaluate_item(item_data)
+                if res.matched:
+                    conn.execute(
+                        """
+                        UPDATE seen_items
+                        SET matched = 1,
+                            model = ?,
+                            chip = ?,
+                            ram = ?,
+                            filter_reason = NULL
+                        WHERE item_id = ?
+                        """,
+                        (res.detected_model, res.detected_chip, res.detected_ram, r["item_id"]),
+                    )
+                    price = r["price"]
+                    if price:
+                        now = datetime.now(timezone.utc).isoformat()
+                        conn.execute(
+                            "INSERT OR IGNORE INTO price_history (item_id, price, currency, recorded_at) VALUES (?, ?, ?, ?)",
+                            (r["item_id"], price, r["currency"] or "USD", now),
+                        )
+                    upgraded += 1
+                else:
+                    conn.execute(
+                        "UPDATE seen_items SET filter_reason = ? WHERE item_id = ?",
+                        (res.reason, r["item_id"]),
+                    )
+            conn.commit()
+            if upgraded > 0:
+                logger.info(f"Reconciled and rescued {upgraded} listings that now match target criteria.")
+        return upgraded
