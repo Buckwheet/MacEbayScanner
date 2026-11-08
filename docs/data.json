@@ -1,10 +1,10 @@
 {
-  "last_scanned": "November 08, 2026 at 11:33 AM CST",
-  "last_scanned_short": "11:33 AM CST",
+  "last_scanned": "November 08, 2026 at 11:48 AM CST",
+  "last_scanned_short": "11:48 AM CST",
   "last_match_time": "Nov 08, 08:28 AM CST",
-  "total_processed": 232,
+  "total_processed": 233,
   "total_matches": 76,
-  "total_filtered": 156,
+  "total_filtered": 157,
   "market_stats": {
     "MacBook Pro M3 MAX 128GB": {
       "count": 9,
@@ -2362,6 +2362,33 @@
       "tok_s_70b": 7.1,
       "llm_value_score": 4.53,
       "first_seen_at": "2026-11-08T12:53:11.469420+00:00"
+    },
+    {
+      "item_id": "v1|407349139007|0",
+      "title": "MacBook Pro 15\" 2017 i7 16GB 250GB SSD Space Gray A1707",
+      "price": 189.0,
+      "currency": "USD",
+      "url": "https://www.ebay.com/itm/407349139007?_skw=MacBook+Pro+256GB&hash=item5ed7e6963f:g:N4UAAeSwbNlq8LGj",
+      "model": "Non-Target",
+      "chip": "Other",
+      "ram": "Non-target",
+      "ram_display": "Excluded",
+      "condition": "Used",
+      "seller": "e-shop110",
+      "llm_analysis": "",
+      "filter_reason": "Title indicates older non-target generation: \\b(intel|i3|i5|i7|i9|xeon|core 2 duo)\\b",
+      "is_matched": false,
+      "image_url": "https://i.ebayimg.com/images/g/N4UAAeSwbNlq8LGj/s-l225.jpg",
+      "category": "Filtered Out",
+      "market_avg": null,
+      "diff": 0.0,
+      "discount_pct": 0.0,
+      "is_deal": false,
+      "bandwidth_gb_s": 400,
+      "tok_s_27b": 16.7,
+      "tok_s_70b": 7.1,
+      "llm_value_score": 0.0,
+      "first_seen_at": "2026-11-08T17:39:42.758693+00:00"
     },
     {
       "item_id": "v1|287714292310|0",
