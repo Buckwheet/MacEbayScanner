@@ -98,3 +98,27 @@ def test_unmatched_item_never_triggers_price_drop(temp_storage):
     with temp_storage._get_connection() as conn:
         ph = conn.execute("SELECT count(*) as c FROM price_history WHERE item_id = 'v1|neo_999|0'").fetchone()["c"]
         assert ph == 0
+
+
+def test_llm_hardware_metrics_calculation():
+    from mac_ebay_scanner.site_generator import calculate_llm_hardware_metrics
+
+    # Test M3 Max (400 GB/s on 128GB tier)
+    m3 = calculate_llm_hardware_metrics("MacBook Pro", "M3 Max", "16-core 40-core GPU 128GB", 3690.0)
+    assert m3["bandwidth_gb_s"] == 400
+    assert m3["tok_s_27b"] == 16.7
+    assert m3["tok_s_70b"] == 7.1
+    assert m3["llm_value_score"] == 4.53
+
+    # Test M4 Max (546 GB/s)
+    m4 = calculate_llm_hardware_metrics("MacBook Pro", "M4 Max", "Apple M4 Max 128GB RAM", 4067.10)
+    assert m4["bandwidth_gb_s"] == 546
+    assert m4["tok_s_27b"] == 22.8
+    assert m4["llm_value_score"] == 5.61
+
+    # Test M3 Ultra (800 GB/s)
+    ultra = calculate_llm_hardware_metrics("Mac Studio", "M3 Ultra", "Mac Studio M3 Ultra 256GB", 8850.0)
+    assert ultra["bandwidth_gb_s"] == 800
+    assert ultra["tok_s_27b"] == 33.3
+    assert ultra["tok_s_70b"] == 14.3
+    assert ultra["llm_value_score"] == 3.76

@@ -1,39 +1,34 @@
 # PROJECT_STATE.md
 
 ## Goal
-Fix price-drop notification bug on unmatched/filtered items (which sent an erroneous price-drop Pushbullet notification for a "MacBook Neo") and verify multi-variation listing 188817784292 is strictly excluded and cannot trigger alerts.
+Implement LLM Performance-per-Dollar (Tok/s per $) metrics, memory bandwidth inference, and interactive sorting/filtering controls for upcoming Qwen 4 local inference on 128GB+ Macs.
 
 ## What Changed
-- Diagnosed root cause of the "MacBook Neo" Pushbullet notification:
-  - An eBay listing for `New 2026 Apple MacBook Neo 13" A18 Pro 5C GPU 4.0GHz 8GB RAM 256GB SSD` was correctly rejected as `matched=0` ("Not a MacBook Pro or Mac Studio").
-  - However, at 09:45:17 CST, the seller dropped the price from $664.99 to $630.99. In `scanner.py`, `is_seen(item_id)` was True, and `check_and_update_price()` lacked an `existing_rec.get("matched") == 1` guard. It detected a price drop on an unmatched item, defaulted the model to "MacBook Pro", and sent a Pushbullet alert.
-- Diagnosed listing `188817784292`:
-  - `2023 Apple MacBook Pro M3 Max 16.2-inch 36GB-128GB RAM, 1TB-8TB SSD, All Colors` ($2,199).
-  - Confirmed demoted to `matched: 0` (`filter_reason: Multi-variation listing (SELLER_DEFINED_VARIATIONS)`). Cleared legacy model/chip/ram to `Non-Target`.
-- Hardened `storage.py`, `scanner.py`, and `filter_engine.py`:
-  - `storage.py`: In `check_and_update_price()`, if `not existing.get("matched")`, update the price in `seen_items` but NEVER record in `price_history` and return `is_price_drop=False`.
-  - `scanner.py`: In `scan_once()`, explicitly check `is_matched = bool(existing_rec.get("matched"))` before processing any price drop or sending a notification.
-  - `filter_engine.py`: Explicitly rejects non-target models (`macbook neo`, `neo`, `macbook air`, etc.) and non-M series mobile chips (`A18 Pro`, `A17`, etc.).
-  - Added unit tests: `test_reject_macbook_neo_and_a_series_chip` and `test_unmatched_item_never_triggers_price_drop`. (22/22 unit tests passing).
-  - Cleaned stray `price_history` records on `encoder1`, refreshed dashboard docs, and restarted `mac-ebay-scanner.service`.
+- Added `calculate_llm_hardware_metrics()` in `mac_ebay_scanner/site_generator.py`:
+  - Maps unified memory bandwidth across Apple Silicon configurations (M3 Max 400 GB/s, M4 Max 546 GB/s, M3 Ultra 800 GB/s, M4 Ultra 1,092 GB/s, M5 Ultra 1,280 GB/s).
+  - Estimates token generation speeds for Qwen 4 (27B at ~18GB Q4 footprint and 70B at ~42GB footprint assuming 75% memory bus efficiency).
+  - Computes `llm_value_score` = `(tok_s_27b / price) * 1000` (tokens per second per $1,000 spent).
+- Enhanced GitHub Pages frontend (`docs/index.html` & `docs/data.json`):
+  - Added sort options: "⚡ Best LLM Value (Tok/s per $)" and "🚀 Fastest LLM Speed (Raw Tok/s)".
+  - Added speed/bandwidth filter buttons: "🚀 Ultra Speed (800+ GB/s)" and "⚡ High Speed (500+ GB/s)".
+  - Embedded real-time LLM inference strip on all verified match cards displaying tok/s, unified bandwidth, and value score.
+  - Added tok/s and bandwidth badges to model combination trend cards.
+- Added unit test `test_llm_hardware_metrics_calculation` in `tests/test_market_and_pricing.py` (23/23 tests pass).
+- Deploying to `encoder1`, rebuilding live dashboard, and verifying service.
 
 ## Commands Run + Results
-- `pytest tests -v` -> 22 passed in 0.67s.
-- `journalctl` grep on `encoder1` -> Identified errant price drop on item `v1|287711261951|0` at 09:45:17 CST.
-- Reconciled and cleaned `encoder1` database -> Deleted 3 stray price history records, set `model: Non-Target`.
-- Verified `docs/data.json` -> Confirmed both item `188817784292` and all MacBook Neo listings have `is_matched: False` and `model: Non-Target`.
+- `pytest tests -v` -> 23 passed in 0.42s.
+- `python main.py build-site` -> Generated updated `index.html` and `data.json` with hardware tok/s and value scores.
+- Value rankings verified: Top value model is MacBook Pro M4 Max 128GB (5.61 tok/s per $1k), Top raw speed model is Mac Studio M5 Ultra 256GB (53.3 tok/s).
 
 ## Files Touched
-- `mac_ebay_scanner/scanner.py`
-- `mac_ebay_scanner/storage.py`
-- `mac_ebay_scanner/filter_engine.py`
-- `tests/test_filter_engine.py`
+- `mac_ebay_scanner/site_generator.py`
 - `tests/test_market_and_pricing.py`
 - `docs/data.json`
 - `docs/index.html`
 - `PROJECT_STATE.md`
 
 ## Next 3 Actions
-- [x] Restrict price drop alerts and price history strictly to `matched == 1` items.
-- [x] Add explicit rejection for MacBook Neo and non-M series chips in filter engine.
-- [x] Deploy to `encoder1`, verify database cleanup, rebuild site, and restart service.
+- [ ] Commit and push changes to GitHub repository.
+- [ ] Pull changes onto `encoder1`, rebuild site, and push live GitHub Pages update.
+- [ ] Verify live site controls and sorting on `https://buckwheet.github.io/MacEbayScanner/`.

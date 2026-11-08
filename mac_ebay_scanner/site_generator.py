@@ -13,6 +13,62 @@ from .storage import SeenStorage
 logger = logging.getLogger(__name__)
 
 
+def calculate_llm_hardware_metrics(model: str, chip: str, title: str = "", price: float = 0.0) -> Dict[str, Any]:
+    """
+    Compute unified memory bandwidth, estimated Qwen 4 tokens/sec, and LLM value score.
+
+    Hardware Unified Memory Bandwidths:
+      - M3 Max: 300 GB/s (14C/30C) or 400 GB/s (16C/40C). (128GB tier is 400 GB/s)
+      - M4 Max: 410 GB/s (14C/32C) or 546 GB/s (16C/40C)
+      - M5 Max: ~640 GB/s
+      - M3 Ultra (Mac Studio): 800 GB/s
+      - M4 Ultra (Mac Studio): 1,092 GB/s
+      - M5 Ultra (Mac Studio): 1,280 GB/s
+    """
+    chip_upper = (chip or "").upper()
+    title_upper = (title or "").upper()
+
+    bandwidth = 400  # Baseline fallback
+
+    if "ULTRA" in chip_upper or "ULTRA" in title_upper:
+        if "M5" in chip_upper or "M5" in title_upper:
+            bandwidth = 1280
+        elif "M4" in chip_upper or "M4" in title_upper:
+            bandwidth = 1092
+        else:
+            bandwidth = 800
+    elif "M5" in chip_upper or "M5" in title_upper:
+        bandwidth = 640
+    elif "M4" in chip_upper or "M4" in title_upper:
+        if "32-CORE" in title_upper or "32C" in title_upper or "14-CORE" in title_upper:
+            bandwidth = 410
+        else:
+            bandwidth = 546
+    elif "M3" in chip_upper or "M3" in title_upper:
+        if "30-CORE" in title_upper or "30C" in title_upper:
+            bandwidth = 300
+        else:
+            bandwidth = 400
+
+    # Token/s estimations:
+    # Qwen4-27B at Q4 footprint is ~18 GB. (Bandwidth * 0.75 efficiency) / 18 GB
+    tok_s_27b = round((bandwidth * 0.75) / 18.0, 1)
+    # Qwen4-70B at Q4 footprint is ~42 GB. (Bandwidth * 0.75 efficiency) / 42 GB
+    tok_s_70b = round((bandwidth * 0.75) / 42.0, 1)
+
+    # LLM Value Score: Tokens per second per $1,000 spent
+    llm_value_score = 0.0
+    if price and price > 0:
+        llm_value_score = round((tok_s_27b / price) * 1000.0, 2)
+
+    return {
+        "bandwidth_gb_s": bandwidth,
+        "tok_s_27b": tok_s_27b,
+        "tok_s_70b": tok_s_70b,
+        "llm_value_score": llm_value_score,
+    }
+
+
 def generate_static_site(
     storage: SeenStorage,
     output_dir: Path,
@@ -103,6 +159,13 @@ def generate_static_site(
                 eval_res = filter_engine.evaluate_item(eval_target)
                 filter_reason = eval_res.reason
 
+        hw_metrics = calculate_llm_hardware_metrics(
+            model=model,
+            chip=chip,
+            title=it.get("title", ""),
+            price=price if is_matched else 0.0,
+        )
+
         processed_items.append({
             "item_id": it["item_id"],
             "title": it["title"],
@@ -124,10 +187,20 @@ def generate_static_site(
             "diff": round(diff, 2),
             "discount_pct": discount_pct,
             "is_deal": is_deal,
+            "bandwidth_gb_s": hw_metrics["bandwidth_gb_s"],
+            "tok_s_27b": hw_metrics["tok_s_27b"],
+            "tok_s_70b": hw_metrics["tok_s_70b"],
+            "llm_value_score": hw_metrics["llm_value_score"],
             "first_seen_at": it.get("first_seen_at", ""),
         })
 
     trend_analysis = storage.get_detailed_trend_analysis()
+    for t in trend_analysis:
+        hw = calculate_llm_hardware_metrics(t.get("model", ""), t.get("chip", ""), "", t.get("avg", 0.0))
+        t["bandwidth_gb_s"] = hw["bandwidth_gb_s"]
+        t["tok_s_27b"] = hw["tok_s_27b"]
+        t["tok_s_70b"] = hw["tok_s_70b"]
+        t["llm_value_score"] = hw["llm_value_score"]
 
     site_data = {
         "last_scanned": timestamp_str,
@@ -249,6 +322,8 @@ def generate_static_site(
         <button onclick="setFilter('Mac Studio')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-filter="Mac Studio">Mac Studio</button>
         <button onclick="setFilter('256GB')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30" data-filter="256GB">256GB RAM Only</button>
         <button onclick="setFilter('deal')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30" data-filter="deal">🔥 Deals Only</button>
+        <button onclick="setFilter('ultra-bw')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30" data-filter="ultra-bw">🚀 Ultra Speed (800+ GB/s)</button>
+        <button onclick="setFilter('high-bw')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30" data-filter="high-bw">⚡ High Speed (500+ GB/s)</button>
         <span id="activeFilterBadge" class="hidden text-xs px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium items-center gap-1.5">
           <span id="activeFilterText"></span>
           <button onclick="setFilter('all')" class="hover:text-white ml-1"><i class="fas fa-xmark"></i></button>
@@ -261,9 +336,11 @@ def generate_static_site(
           <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Search title or specs..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-gray-900 border border-gray-700 text-white focus:outline-none focus:border-blue-500">
         </div>
         <select id="sortSelect" onchange="applyFilters()" class="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-white focus:outline-none focus:border-blue-500">
+          <option value="value-desc">⚡ Best LLM Value (Tok/s per $)</option>
+          <option value="speed-desc">🚀 Fastest LLM Speed (Raw Tok/s)</option>
           <option value="price-asc">Price: Low to High</option>
           <option value="price-desc">Price: High to Low</option>
-          <option value="discount-desc">Best Value (% Under Market)</option>
+          <option value="discount-desc">Best Deal (% Under Market)</option>
         </select>
       </div>
     </section>
@@ -408,6 +485,7 @@ def generate_static_site(
         const ramBadge = is256 
           ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono font-semibold">256GB RAM</span>'
           : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono font-semibold">128GB RAM</span>';
+        const hwBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono font-semibold"><i class="fas fa-bolt mr-0.5"></i>${{t.tok_s_27b || '~'}} tok/s (${{t.bandwidth_gb_s}} GB/s)</span>`;
 
         const storageList = Object.entries(t.storage_spread || {{}})
           .filter(([k, _]) => k !== 'Standard')
@@ -424,8 +502,9 @@ def generate_static_site(
                 <i class="fas ${{iconClass}} text-sm"></i>
                 <span class="font-bold text-sm text-white">${{t.model}} ${{t.chip}}</span>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5 flex-wrap justify-end">
                 ${{ramBadge}}
+                ${{hwBadge}}
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 font-mono">${{t.count}} active</span>
               </div>
             </div>
@@ -524,12 +603,16 @@ def generate_static_site(
         if (currentFilter === 'Mac Studio' && it.model !== 'Mac Studio') return false;
         if (currentFilter === '256GB' && !it.ram.includes('256')) return false;
         if (currentFilter === 'deal' && !it.is_deal) return false;
+        if (currentFilter === 'ultra-bw' && (!it.bandwidth_gb_s || it.bandwidth_gb_s < 800)) return false;
+        if (currentFilter === 'high-bw' && (!it.bandwidth_gb_s || it.bandwidth_gb_s < 500)) return false;
         if (currentFilter.startsWith('Mac') && it.category !== currentFilter) return false;
         if (query && !it.title.toLowerCase().includes(query) && !it.chip.toLowerCase().includes(query)) return false;
         return true;
       }});
 
-      if (sort === 'price-asc') items.sort((a, b) => a.price - b.price);
+      if (sort === 'value-desc') items.sort((a, b) => (b.llm_value_score || 0) - (a.llm_value_score || 0));
+      else if (sort === 'speed-desc') items.sort((a, b) => (b.tok_s_27b || 0) - (a.tok_s_27b || 0));
+      else if (sort === 'price-asc') items.sort((a, b) => a.price - b.price);
       else if (sort === 'price-desc') items.sort((a, b) => b.price - a.price);
       else if (sort === 'discount-desc') items.sort((a, b) => b.discount_pct - a.discount_pct);
 
@@ -641,6 +724,22 @@ def generate_static_site(
               <span class="text-2xl font-bold text-white">$${{it.price.toLocaleString()}}</span>
               <span class="text-xs text-gray-400">${{it.currency}}</span>
               ${{diffStr}}
+            </div>
+
+            <!-- Qwen 4 Local LLM Inference Performance -->
+            <div class="mt-3 mb-2 p-2.5 rounded-xl bg-gray-950/80 border border-gray-800/90">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="text-amber-400 font-bold flex items-center gap-1.5">
+                  <i class="fas fa-bolt text-xs text-amber-400"></i>${{it.tok_s_27b}} tok/s <span class="text-[10px] text-gray-400 font-normal font-mono">(Qwen4-27B)</span>
+                </span>
+                <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20" title="Tokens per second per $1,000 spent">
+                  💎 ${{it.llm_value_score}} tok/s / $1k
+                </span>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                <span>Bandwidth: <strong class="text-blue-300 font-semibold">${{it.bandwidth_gb_s}} GB/s</strong></span>
+                <span>~${{it.tok_s_70b}} tok/s on 70B</span>
+              </div>
             </div>
 
             ${{aiSection}}
