@@ -286,7 +286,12 @@ class MacEbayScanner:
                     )
                 else:
                     logger.debug(f"Filtered out: '{title}' - Reason: {final_res.reason}")
-                    self.storage.record_item(item=item, matched=False, notified=False)
+                    self.storage.record_item(
+                        item=item,
+                        matched=False,
+                        notified=False,
+                        filter_reason=final_res.reason,
+                    )
 
         # Refresh live website if new matches/drops occurred, or if 15-minute heartbeat is due
         has_updates = (matches_found > 0 or price_drops_detected > 0)

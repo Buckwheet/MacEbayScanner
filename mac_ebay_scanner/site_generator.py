@@ -27,10 +27,15 @@ def generate_static_site(
     timestamp_str = now_cst.strftime("%B %d, %Y at %I:%M %p CST")
     time_only_str = now_cst.strftime("%I:%M %p CST")
 
-    # Get stats, market statistics, and matched items
+    from .filter_engine import MacFilterEngine
+    filter_engine = MacFilterEngine()
+
+    # Get stats, market statistics, and all seen items
     db_stats = storage.get_stats()
     market_stats = storage.get_market_statistics()
-    matched_items = storage.get_matched_items(limit=100)
+    all_seen = storage.get_all_seen_items(limit=1000)
+    matched_items = [it for it in all_seen if it.get("matched") == 1]
+    filtered_items = [it for it in all_seen if it.get("matched") != 1]
 
     # Format the time of the most recent match
     last_match_time_str = "None yet"
@@ -43,26 +48,9 @@ def generate_static_site(
 
     # Process items to attach market delta and deal badges
     processed_items = []
-    for it in matched_items:
+    for it in all_seen:
+        is_matched = bool(it.get("matched"))
         price = it.get("price") or 0.0
-        model = it.get("model") or "MacBook Pro"
-        chip = it.get("chip") or "M3 Max"
-        raw_ram = str(it.get("ram") or "128GB")
-        ram = "256GB" if "256" in raw_ram else "128GB"
-        ram_display = f"{ram} Unified Memory"
-        cat_key = storage.get_category_key(model, chip, ram)
-
-        stat = market_stats.get(cat_key, {})
-        avg_price = stat.get("avg")
-        discount_pct = 0.0
-        diff = 0.0
-        is_deal = False
-
-        if avg_price and avg_price > 0 and price < avg_price:
-            diff = avg_price - price
-            discount_pct = round((diff / avg_price) * 100.0, 1)
-            if discount_pct >= 15.0:
-                is_deal = True
 
         raw_item = {}
         try:
@@ -77,6 +65,44 @@ def generate_static_site(
         elif raw_item.get("thumbnailImages") and len(raw_item["thumbnailImages"]) > 0:
             image_url = raw_item["thumbnailImages"][0].get("imageUrl", "")
 
+        filter_reason = None
+        if is_matched:
+            model = it.get("model") or "MacBook Pro"
+            chip = it.get("chip") or "M3 Max"
+            raw_ram = str(it.get("ram") or "128GB")
+            ram = "256GB" if "256" in raw_ram else "128GB"
+            ram_display = f"{ram} Unified Memory"
+            cat_key = storage.get_category_key(model, chip, ram)
+
+            stat = market_stats.get(cat_key, {})
+            avg_price = stat.get("avg")
+            discount_pct = 0.0
+            diff = 0.0
+            is_deal = False
+
+            if avg_price and avg_price > 0 and price < avg_price:
+                diff = avg_price - price
+                discount_pct = round((diff / avg_price) * 100.0, 1)
+                if discount_pct >= 15.0:
+                    is_deal = True
+        else:
+            model = it.get("model") or "Non-Target"
+            chip = it.get("chip") or "Other"
+            raw_ram = str(it.get("ram") or "")
+            ram = "256GB" if "256" in raw_ram else ("128GB" if "128" in raw_ram else "Non-target")
+            ram_display = "Excluded"
+            cat_key = "Filtered Out"
+            avg_price = None
+            discount_pct = 0.0
+            diff = 0.0
+            is_deal = False
+
+            filter_reason = it.get("filter_reason")
+            if not filter_reason:
+                eval_target = raw_item if raw_item else {"title": it.get("title", "")}
+                eval_res = filter_engine.evaluate_item(eval_target)
+                filter_reason = eval_res.reason
+
         processed_items.append({
             "item_id": it["item_id"],
             "title": it["title"],
@@ -90,6 +116,8 @@ def generate_static_site(
             "condition": it.get("condition") or "Pre-owned",
             "seller": it.get("seller") or "eBay Seller",
             "llm_analysis": it.get("llm_analysis") or "",
+            "filter_reason": filter_reason,
+            "is_matched": is_matched,
             "image_url": image_url,
             "category": cat_key,
             "market_avg": avg_price,
@@ -105,8 +133,9 @@ def generate_static_site(
         "last_scanned": timestamp_str,
         "last_scanned_short": time_only_str,
         "last_match_time": last_match_time_str,
-        "total_processed": db_stats["total_seen"],
-        "total_matches": len(processed_items),
+        "total_processed": len(processed_items),
+        "total_matches": len(matched_items),
+        "total_filtered": len(filtered_items),
         "market_stats": market_stats,
         "trend_analysis": trend_analysis,
         "items": processed_items,
@@ -239,11 +268,23 @@ def generate_static_site(
       </div>
     </section>
 
-    <!-- Listings Grid -->
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold tracking-wider uppercase text-gray-400 flex items-center gap-2">
-        <i class="fas fa-laptop text-blue-400"></i> Active Listings (<span id="itemCount">0</span>)
-      </h2>
+    <!-- Listings View Mode Switcher -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div class="flex items-center gap-1.5 p-1 rounded-xl bg-gray-900 border border-gray-800 self-start">
+        <button onclick="setViewMode('matched')" id="tabMatched" class="view-mode-tab active text-xs px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold transition cursor-pointer" data-view="matched">
+          <i class="fas fa-check-circle mr-1 text-emerald-400"></i> Verified Matches (<span id="matchedCountTab">0</span>)
+        </button>
+        <button onclick="setViewMode('filtered')" id="tabFiltered" class="view-mode-tab text-xs px-3.5 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer" data-view="filtered">
+          <i class="fas fa-filter-circle-xmark mr-1 text-amber-400"></i> Filtered Out (<span id="filteredCountTab">0</span>)
+        </button>
+        <button onclick="setViewMode('all')" id="tabAll" class="view-mode-tab text-xs px-3.5 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer" data-view="all">
+          <i class="fas fa-list mr-1 text-blue-400"></i> All Evaluated (<span id="allCountTab">0</span>)
+        </button>
+      </div>
+
+      <div class="text-xs text-gray-400">
+        Showing <span id="itemCount" class="font-bold text-white">0</span> listings
+      </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="itemsGrid">
@@ -255,6 +296,19 @@ def generate_static_site(
   <script>
     let DATA = {json.dumps(site_data)};
     let currentFilter = 'all';
+    let currentViewMode = 'matched';
+
+    function setViewMode(mode) {{
+      currentViewMode = mode;
+      document.querySelectorAll('.view-mode-tab').forEach(b => {{
+        if (b.dataset.view === mode) {{
+          b.className = 'view-mode-tab active text-xs px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold transition cursor-pointer';
+        }} else {{
+          b.className = 'view-mode-tab text-xs px-3.5 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer';
+        }}
+      }});
+      applyFilters();
+    }}
 
     const REFRESH_INTERVAL_MS = 180000; // 3 minutes
     let nextRefreshEpoch = Date.now() + REFRESH_INTERVAL_MS;
@@ -451,7 +505,21 @@ def generate_static_site(
       const query = document.getElementById('searchInput').value.toLowerCase();
       const sort = document.getElementById('sortSelect').value;
 
+      const matchedTotal = DATA.items.filter(it => it.is_matched).length;
+      const filteredTotal = DATA.items.filter(it => !it.is_matched).length;
+      const allTotal = DATA.items.length;
+
+      const mTab = document.getElementById('matchedCountTab');
+      if (mTab) mTab.innerText = matchedTotal;
+      const fTab = document.getElementById('filteredCountTab');
+      if (fTab) fTab.innerText = filteredTotal;
+      const aTab = document.getElementById('allCountTab');
+      if (aTab) aTab.innerText = allTotal;
+
       let items = DATA.items.filter(it => {{
+        if (currentViewMode === 'matched' && !it.is_matched) return false;
+        if (currentViewMode === 'filtered' && it.is_matched) return false;
+
         if (currentFilter === 'MacBook Pro' && it.model !== 'MacBook Pro') return false;
         if (currentFilter === 'Mac Studio' && it.model !== 'Mac Studio') return false;
         if (currentFilter === '256GB' && !it.ram.includes('256')) return false;
@@ -474,12 +542,56 @@ def generate_static_site(
       grid.innerHTML = '';
 
       if (items.length === 0) {{
-        grid.innerHTML = '<div class="col-span-full py-12 text-center text-gray-500">No matching listings found.</div>';
+        grid.innerHTML = '<div class="col-span-full py-12 text-center text-gray-500">No matching listings found for this view and filter.</div>';
         return;
       }}
 
       items.forEach(it => {{
         const card = document.createElement('div');
+
+        if (!it.is_matched) {{
+          card.className = 'glass-card rounded-2xl p-5 flex flex-col justify-between border-amber-500/20 bg-gray-900/40 hover:border-amber-500/40 transition';
+          const imgPlaceholder = it.image_url ? 
+            `<img src="${{it.image_url}}" alt="Mac" class="w-16 h-16 object-cover rounded-xl border border-gray-800 shrink-0 opacity-70">` : 
+            `<div class="w-16 h-16 rounded-xl bg-gray-800/60 flex items-center justify-center text-gray-500 shrink-0"><i class="fas fa-filter text-xl"></i></div>`;
+
+          card.innerHTML = `
+            <div>
+              <div class="flex items-center justify-between mb-3 gap-2">
+                <span class="text-[11px] px-2.5 py-0.5 rounded bg-gray-800 text-gray-400 font-medium border border-gray-700">Non-Target Listing</span>
+                <span class="text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold"><i class="fas fa-ban mr-1"></i>Filtered Out</span>
+              </div>
+
+              <div class="flex gap-3 items-start mb-3">
+                ${{imgPlaceholder}}
+                <div>
+                  <h3 class="text-sm font-medium text-gray-300 line-clamp-2 leading-snug">${{it.title}}</h3>
+                  <div class="text-xs text-gray-500 mt-1">${{it.condition}} • ${{it.seller}}</div>
+                </div>
+              </div>
+
+              <div class="mt-2.5 mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 leading-snug">
+                <span class="font-bold text-amber-300 mr-1"><i class="fas fa-circle-info mr-1"></i>Rejection Reason:</span>
+                ${{it.filter_reason || 'Did not meet target processor or memory criteria'}}
+              </div>
+
+              <div class="flex items-baseline gap-2 mt-1">
+                <span class="text-xl font-bold text-gray-300">$${{it.price.toLocaleString()}}</span>
+                <span class="text-xs text-gray-500">${{it.currency}}</span>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between">
+              <span class="text-[11px] text-gray-500 font-mono">Excluded by Rule Engine</span>
+              <a href="${{it.url}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 transition">
+                Inspect on eBay <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
+              </a>
+            </div>
+          `;
+          grid.appendChild(card);
+          return;
+        }}
+
         card.className = 'glass-card rounded-2xl p-5 flex flex-col justify-between';
 
         const dealBadge = it.is_deal ? 
@@ -495,7 +607,7 @@ def generate_static_site(
 
         const imgPlaceholder = it.image_url ? 
           `<img src="${{it.image_url}}" alt="Mac" class="w-20 h-20 object-cover rounded-xl border border-gray-800 shrink-0">` : 
-          `<div class="w-20 h-20 rounded-xl bg-gray-800 flex items-center justify-center text-gray-600 shrink-0"><i class="fas fa-laptop text-2xl"></i></div>`;
+            `<div class="w-20 h-20 rounded-xl bg-gray-800 flex items-center justify-center text-gray-600 shrink-0"><i class="fas fa-laptop text-2xl"></i></div>`;
 
         const is256 = (it.ram && it.ram.includes('256')) || (it.title && it.title.includes('256'));
         const ramBadgeClass = is256 

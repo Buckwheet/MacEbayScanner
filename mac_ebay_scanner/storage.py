@@ -37,6 +37,7 @@ class SeenStorage:
                     notified INTEGER DEFAULT 0,
                     digest_sent INTEGER DEFAULT 0,
                     llm_analysis TEXT,
+                    filter_reason TEXT,
                     first_seen_at TEXT NOT NULL,
                     last_updated_at TEXT,
                     raw_json TEXT
@@ -69,6 +70,8 @@ class SeenStorage:
                 conn.execute("ALTER TABLE seen_items ADD COLUMN llm_analysis TEXT")
             if "last_updated_at" not in columns:
                 conn.execute("ALTER TABLE seen_items ADD COLUMN last_updated_at TEXT")
+            if "filter_reason" not in columns:
+                conn.execute("ALTER TABLE seen_items ADD COLUMN filter_reason TEXT")
 
             # Automatically normalize any legacy or verbose RAM strings
             conn.execute("UPDATE seen_items SET ram = '256GB' WHERE ram LIKE '%256%' AND ram != '256GB'")
@@ -108,6 +111,7 @@ class SeenStorage:
         detected_chip: Optional[str] = None,
         detected_ram: Optional[str] = None,
         llm_analysis: Optional[str] = None,
+        filter_reason: Optional[str] = None,
     ):
         """Record an item into the database and capture initial price in price_history."""
         item_id = item.get("itemId", "")
@@ -130,9 +134,9 @@ class SeenStorage:
                 """
                 INSERT OR REPLACE INTO seen_items (
                     item_id, legacy_item_id, title, price, currency, url, condition, seller,
-                    model, chip, ram, matched, notified, digest_sent, llm_analysis,
+                    model, chip, ram, matched, notified, digest_sent, llm_analysis, filter_reason,
                     first_seen_at, last_updated_at, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -149,6 +153,7 @@ class SeenStorage:
                     1 if matched else 0,
                     1 if notified else 0,
                     llm_analysis,
+                    filter_reason,
                     now,
                     now,
                     raw_json,
@@ -464,6 +469,22 @@ class SeenStorage:
                 FROM seen_items
                 WHERE matched = 1
                 ORDER BY first_seen_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def get_all_seen_items(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Retrieve all evaluated items (both matched and non-matched)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT item_id, title, price, currency, url, model, chip, ram, matched, condition, seller,
+                       llm_analysis, filter_reason, first_seen_at, raw_json
+                FROM seen_items
+                ORDER BY matched DESC, first_seen_at DESC
                 LIMIT ?
                 """,
                 (limit,),
