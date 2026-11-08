@@ -1,5 +1,5 @@
 {
-  "last_updated": "November 08, 2026 at 08:26 AM CST",
+  "last_updated": "November 08, 2026 at 08:27 AM CST",
   "market_stats": {
     "MacBook Pro M3 MAX 128GB": {
       "count": 9,
@@ -44,15 +44,82 @@
       "max": 24000.0
     },
     "Mac Studio M3 ULTRA 256GB": {
-      "count": 2,
+      "count": 4,
       "min": 8850.0,
-      "avg": 9423.5,
-      "median": 9423.5,
-      "max": 9997.0
+      "avg": 9686.47,
+      "median": 9598.5,
+      "max": 10698.86
+    },
+    "Mac Studio M3 256GB": {
+      "count": 1,
+      "min": 8850.0,
+      "avg": 8850.0,
+      "median": 8850.0,
+      "max": 8850.0
     }
   },
-  "total_matches": 49,
+  "total_matches": 52,
   "items": [
+    {
+      "item_id": "v1|257840844264|0",
+      "title": "New Apple Mac Studio M3 Ultra 256GB RAM 2TB SSD 32C CPU 80C GPU Warranty",
+      "price": 10698.86,
+      "currency": "USD",
+      "url": "https://www.ebay.com/itm/257840844264?_skw=Mac+Studio+256GB&hash=item3c08830de8:g:9FoAAeSwVZ5qk5Kw",
+      "model": "Mac Studio",
+      "chip": "Apple M3 Ultra",
+      "ram": "256GB",
+      "condition": "New",
+      "seller": "cottontreeco",
+      "llm_analysis": "The Mac Studio M3 Ultra with 256GB RAM and 2TB SSD is a strong value at this price, offering substantial performance, though the 256GB RAM might be seen as slightly underwhelming for such high-end hardware.",
+      "image_url": "",
+      "category": "Mac Studio M3 ULTRA 128GB",
+      "market_avg": null,
+      "diff": 0.0,
+      "discount_pct": 0.0,
+      "is_deal": false,
+      "first_seen_at": "2026-11-08T14:27:47.811319+00:00"
+    },
+    {
+      "item_id": "v1|398419329696|0",
+      "title": "Apple Certified Mac Studio M3 Ultra 60-Core 256GB RAM 1TB SSD",
+      "price": 8850.0,
+      "currency": "USD",
+      "url": "https://www.ebay.com/itm/398419329696?_skw=Mac+Studio+256GB&hash=item5cc3a482a0:g:BM8AAeSwKjZqry~c",
+      "model": "Mac Studio",
+      "chip": "Apple M3",
+      "ram": "256GB",
+      "condition": "Used",
+      "seller": "bensto23",
+      "llm_analysis": "The deal offers a rare Apple Silicon M3 Ultra configuration with 256GB of RAM and 1TB SSD, making it a strong value for its performance, though the lack of 4TB or 8TB storage is a minor drawback.",
+      "image_url": "",
+      "category": "Mac Studio M3 128GB",
+      "market_avg": null,
+      "diff": 0.0,
+      "discount_pct": 0.0,
+      "is_deal": false,
+      "first_seen_at": "2026-11-08T14:27:32.345347+00:00"
+    },
+    {
+      "item_id": "v1|158319552186|0",
+      "title": "Apple Mac Studio M3 Ultra 28-Core 60-Core GPU 256GB 1TB SSD Open Box AppleCare+",
+      "price": 9200.0,
+      "currency": "USD",
+      "url": "https://www.ebay.com/itm/158319552186?_skw=Mac+Studio+256GB&hash=item24dc94a6ba:g:hUsAAeSwc-dqsgx9",
+      "model": "Mac Studio",
+      "chip": "Apple M3 Ultra 28-core",
+      "ram": "256GB",
+      "condition": "Open box",
+      "seller": "na-414398",
+      "llm_analysis": "The Mac Studio M3 Ultra with 256GB of RAM and 1TB SSD is well-priced for its specifications, though the absence of a higher storage option like 2TB or 4TB is a slight drawback.",
+      "image_url": "",
+      "category": "Mac Studio M3 ULTRA 128GB",
+      "market_avg": null,
+      "diff": 0.0,
+      "discount_pct": 0.0,
+      "is_deal": false,
+      "first_seen_at": "2026-11-08T14:27:28.105282+00:00"
+    },
     {
       "item_id": "v1|206641721137|0",
       "title": "Mac Studio M3 Ultra 256GB RAM 2TB SSD 28C CPU 60C GPU - Barely used",
