@@ -71,6 +71,9 @@ class MacEbayScanner:
             return False
 
         logger.info(f"5:00 AM CST Digest trigger: preparing overnight summary for {today_str}...")
+        # Update public site before sending digest
+        self.update_public_site()
+
         queued_items = self.storage.get_queued_digest_items()
         market_stats = self.storage.get_market_statistics()
 
@@ -82,6 +85,28 @@ class MacEbayScanner:
                 self.storage.mark_digest_sent([it["item_id"] for it in queued_items])
                 self.storage.set_state("last_5am_digest_date", today_str)
         return sent
+
+    def update_public_site(self):
+        """Regenerate static dashboard and push to GitHub Pages."""
+        try:
+            from .site_generator import generate_static_site
+            docs_dir = self.config.db_path.parent.parent / "docs"
+            generate_static_site(self.storage, docs_dir)
+
+            import subprocess
+            repo_dir = str(self.config.db_path.parent.parent)
+            subprocess.run(["git", "add", "docs/"], cwd=repo_dir, capture_output=True, timeout=10)
+            res = subprocess.run(
+                ["git", "commit", "-m", "Auto-update live Mac listings [skip ci]"],
+                cwd=repo_dir,
+                capture_output=True,
+                timeout=10,
+            )
+            if res.returncode == 0:
+                subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=20)
+                logger.info("GitHub Pages updated and pushed successfully.")
+        except Exception as e:
+            logger.warning(f"Could not auto-publish to GitHub Pages: {e}")
 
     def stop(self):
         self._stop_requested = True
@@ -258,6 +283,10 @@ class MacEbayScanner:
                 else:
                     logger.debug(f"Filtered out: '{title}' - Reason: {final_res.reason}")
                     self.storage.record_item(item=item, matched=False, notified=False)
+
+        # If new matches or price drops were detected, refresh the live website
+        if matches_found > 0 or price_drops_detected > 0:
+            self.update_public_site()
 
         stats = {
             "total_items_examined": total_found,
