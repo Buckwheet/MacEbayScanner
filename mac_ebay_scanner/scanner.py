@@ -38,6 +38,7 @@ class MacEbayScanner:
             enabled=config.use_local_llm,
         )
         self._stop_requested = False
+        self._last_site_push_time = 0.0
 
         try:
             self.tz = ZoneInfo(config.timezone_name)
@@ -86,25 +87,33 @@ class MacEbayScanner:
                 self.storage.set_state("last_5am_digest_date", today_str)
         return sent
 
-    def update_public_site(self):
-        """Regenerate static dashboard and push to GitHub Pages."""
+    def update_public_site(self, force: bool = False):
+        """Regenerate static dashboard and push to GitHub Pages if due or forced."""
+        now = time.time()
+        # Publish at least every 15 minutes (900s) as a heartbeat, or immediately on new matches/forced
+        if not force and (now - self._last_site_push_time < 900):
+            return
+
         try:
             from .site_generator import generate_static_site
             docs_dir = self.config.db_path.parent.parent / "docs"
-            generate_static_site(self.storage, docs_dir)
+            now_cst = self.get_cst_now()
+            generate_static_site(self.storage, docs_dir, last_scan_dt=now_cst)
 
             import subprocess
             repo_dir = str(self.config.db_path.parent.parent)
             subprocess.run(["git", "add", "docs/"], cwd=repo_dir, capture_output=True, timeout=10)
+            commit_msg = f"Auto-update live Mac listings (Scan {now_cst.strftime('%I:%M %p CST')}) [skip ci]"
             res = subprocess.run(
-                ["git", "commit", "-m", "Auto-update live Mac listings [skip ci]"],
+                ["git", "commit", "-m", commit_msg],
                 cwd=repo_dir,
                 capture_output=True,
                 timeout=10,
             )
             if res.returncode == 0:
                 subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, timeout=20)
-                logger.info("GitHub Pages updated and pushed successfully.")
+                logger.info(f"GitHub Pages updated and pushed successfully ({commit_msg}).")
+            self._last_site_push_time = now
         except Exception as e:
             logger.warning(f"Could not auto-publish to GitHub Pages: {e}")
 
@@ -279,9 +288,9 @@ class MacEbayScanner:
                     logger.debug(f"Filtered out: '{title}' - Reason: {final_res.reason}")
                     self.storage.record_item(item=item, matched=False, notified=False)
 
-        # If new matches or price drops were detected, refresh the live website
-        if matches_found > 0 or price_drops_detected > 0:
-            self.update_public_site()
+        # Refresh live website if new matches/drops occurred, or if 15-minute heartbeat is due
+        has_updates = (matches_found > 0 or price_drops_detected > 0)
+        self.update_public_site(force=has_updates)
 
         stats = {
             "total_items_examined": total_found,

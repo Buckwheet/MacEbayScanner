@@ -7,23 +7,39 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from .storage import SeenStorage
 
 logger = logging.getLogger(__name__)
 
 
-def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_url: str = "https://buckwheet.github.io/MacEbayScanner/"):
+def generate_static_site(
+    storage: SeenStorage,
+    output_dir: Path,
+    last_scan_dt: Optional[datetime] = None,
+    github_pages_url: str = "https://buckwheet.github.io/MacEbayScanner/",
+):
     """Generate static HTML dashboard and JSON data in output_dir."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cst_tz = ZoneInfo("America/Chicago")
-    now_cst = datetime.now(cst_tz)
+    now_cst = last_scan_dt.astimezone(cst_tz) if last_scan_dt else datetime.now(cst_tz)
     timestamp_str = now_cst.strftime("%B %d, %Y at %I:%M %p CST")
+    time_only_str = now_cst.strftime("%I:%M %p CST")
 
-    # Get market statistics and all matched items
+    # Get stats, market statistics, and matched items
+    db_stats = storage.get_stats()
     market_stats = storage.get_market_statistics()
     matched_items = storage.get_matched_items(limit=100)
+
+    # Format the time of the most recent match
+    last_match_time_str = "None yet"
+    if matched_items:
+        try:
+            m_dt = datetime.fromisoformat(matched_items[0]["first_seen_at"])
+            last_match_time_str = m_dt.astimezone(cst_tz).strftime("%b %d, %I:%M %p CST")
+        except Exception:
+            last_match_time_str = matched_items[0].get("first_seen_at", "")[:16]
 
     # Process items to attach market delta and deal badges
     processed_items = []
@@ -31,7 +47,8 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
         price = it.get("price") or 0.0
         model = it.get("model") or "MacBook Pro"
         chip = it.get("chip") or "M3 Max"
-        cat_key = storage.get_category_key(model, chip)
+        ram = it.get("ram") or "128GB"
+        cat_key = storage.get_category_key(model, chip, ram)
 
         stat = market_stats.get(cat_key, {})
         avg_price = stat.get("avg")
@@ -66,7 +83,7 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
             "url": it["url"],
             "model": model,
             "chip": chip,
-            "ram": it.get("ram") or "128GB",
+            "ram": ram,
             "condition": it.get("condition") or "Pre-owned",
             "seller": it.get("seller") or "eBay Seller",
             "llm_analysis": it.get("llm_analysis") or "",
@@ -79,28 +96,29 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
             "first_seen_at": it.get("first_seen_at", ""),
         })
 
-    # Save data.json
     site_data = {
-        "last_updated": timestamp_str,
-        "market_stats": market_stats,
+        "last_scanned": timestamp_str,
+        "last_scanned_short": time_only_str,
+        "last_match_time": last_match_time_str,
+        "total_processed": db_stats["total_seen"],
         "total_matches": len(processed_items),
+        "market_stats": market_stats,
         "items": processed_items,
     }
     (output_dir / "data.json").write_text(json.dumps(site_data, indent=2), encoding="utf-8")
 
-    # Generate index.html
     html_content = f"""<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Apple Silicon 128GB Mac Deal Tracker</title>
-  <meta name="description" content="Live 24/7 eBay monitor and price tracker for M3+ 128GB MacBook Pro and Mac Studio machines.">
+  <title>Apple Silicon 128GB & 256GB Mac Deal Tracker</title>
+  <meta name="description" content="Live 24/7 eBay monitor and price tracker for M3+ 128GB/256GB MacBook Pro and Mac Studio machines.">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     body {{ background-color: #0b0f17; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-    .glass {{ background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }}
+    .glass {{ background: rgba(17, 24, 39, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }}
     .glass-card {{ background: #131b2e; border: 1px solid rgba(255, 255, 255, 0.07); transition: transform 0.2s, border-color 0.2s; }}
     .glass-card:hover {{ transform: translateY(-2px); border-color: rgba(59, 130, 246, 0.5); }}
   </style>
@@ -108,28 +126,54 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
 <body class="min-h-screen pb-16">
 
   <!-- Header -->
-  <header class="glass sticky top-0 z-50 py-4 px-6 mb-8 border-b border-gray-800">
+  <header class="glass sticky top-0 z-50 py-3.5 px-6 mb-8 border-b border-gray-800">
     <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl font-bold border border-blue-500/30">
           <i class="fab fa-apple"></i>
         </div>
         <div>
-          <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            Apple Silicon 128GB Tracker
-            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">LIVE 24/7</span>
-          </h1>
-          <p class="text-xs text-gray-400">eBay monitor for M3+ MacBook Pro & Mac Studio (128GB RAM)</p>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold tracking-tight text-white">Apple Silicon High-Memory Tracker</h1>
+            <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ONLINE 24/7
+            </span>
+          </div>
+          <p class="text-xs text-gray-400">eBay monitor for M3+ MacBook Pro & Mac Studio (128GB & 256GB Unified Memory)</p>
         </div>
       </div>
-      <div class="text-xs text-gray-400 text-center md:text-right">
-        <div><i class="fas fa-satellite-dish text-blue-400 mr-1.5"></i> Scanned by <span class="font-semibold text-gray-300">encoder1</span></div>
-        <div class="text-gray-500 mt-0.5">Updated: <span class="text-gray-400 font-mono" id="lastUpdated">{timestamp_str}</span></div>
+      <div class="text-xs text-gray-400 text-center md:text-right flex flex-col gap-0.5">
+        <div><i class="fas fa-satellite-dish text-blue-400 mr-1.5"></i> Scanned by <span class="font-semibold text-gray-300">encoder1</span> (Every 3 mins)</div>
+        <div class="text-gray-400">Last Scan: <span class="text-emerald-400 font-semibold">{time_only_str}</span> • Last New Match: <span class="text-gray-300 font-medium">{last_match_time_str}</span></div>
       </div>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto px-4 sm:px-6">
+
+    <!-- Status Strip -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+      <div class="glass p-3 rounded-xl border border-gray-800/80">
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">Scanner Status</div>
+        <div class="text-sm font-semibold text-emerald-400 mt-0.5 flex items-center gap-1.5">
+          <i class="fas fa-check-circle"></i> Active & Polling
+        </div>
+      </div>
+      <div class="glass p-3 rounded-xl border border-gray-800/80">
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">Evaluated Today</div>
+        <div class="text-sm font-bold text-white mt-0.5">{db_stats["total_seen"]} listings</div>
+      </div>
+      <div class="glass p-3 rounded-xl border border-gray-800/80">
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">Matching Machines</div>
+        <div class="text-sm font-bold text-blue-400 mt-0.5">{len(processed_items)} verified</div>
+      </div>
+      <div class="glass p-3 rounded-xl border border-gray-800/80">
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">AI Evaluator</div>
+        <div class="text-sm font-semibold text-amber-400 mt-0.5 flex items-center gap-1.5">
+          <i class="fas fa-microchip"></i> LOQ RTX 3050 (qwen2.5)
+        </div>
+      </div>
+    </div>
 
     <!-- Market Overview Cards -->
     <section class="mb-10">
@@ -148,6 +192,7 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
         <button onclick="setFilter('all')" class="filter-btn active text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium" data-filter="all">All</button>
         <button onclick="setFilter('MacBook Pro')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-filter="MacBook Pro">MacBook Pro</button>
         <button onclick="setFilter('Mac Studio')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700" data-filter="Mac Studio">Mac Studio</button>
+        <button onclick="setFilter('256GB')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30" data-filter="256GB">256GB RAM Only</button>
         <button onclick="setFilter('deal')" class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30" data-filter="deal">🔥 Deals Only</button>
       </div>
 
@@ -190,7 +235,7 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
         card.innerHTML = `
           <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
             <span class="font-medium text-gray-200">${{cat}}</span>
-            <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-300">${{s.count}} listings</span>
+            <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono">${{s.count}} listings</span>
           </div>
           <div class="flex items-baseline justify-between mt-2">
             <div>
@@ -226,6 +271,7 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
       let items = DATA.items.filter(it => {{
         if (currentFilter === 'MacBook Pro' && it.model !== 'MacBook Pro') return false;
         if (currentFilter === 'Mac Studio' && it.model !== 'Mac Studio') return false;
+        if (currentFilter === '256GB' && !it.ram.includes('256')) return false;
         if (currentFilter === 'deal' && !it.is_deal) return false;
         if (query && !it.title.toLowerCase().includes(query) && !it.chip.toLowerCase().includes(query)) return false;
         return true;
@@ -292,7 +338,7 @@ def generate_static_site(storage: SeenStorage, output_dir: Path, github_pages_ur
           </div>
 
           <div class="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between">
-            <span class="text-xs text-gray-500 font-mono">128GB Unified Memory</span>
+            <span class="text-xs text-gray-400 font-mono font-medium">${{it.ram}} Unified Memory</span>
             <a href="${{it.url}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition">
               View on eBay <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
             </a>

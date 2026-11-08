@@ -1,37 +1,24 @@
 # PROJECT_STATE.md
 
 ## Goal
-Expand eBay monitor, filter engine, local model prompts, and GitHub Pages dashboard to support 128GB and 256GB Unified Memory models (M3+ MacBook Pro and Mac Studio) for Splash LLM workloads, with strict 256GB SSD storage trap rejection.
+Implement periodic heartbeat updates (every 15 minutes) for the public GitHub Pages website, add live scanner status badge ("🟢 Active (Polling every 3 mins)", "Last Scan Timestamp", and "Last New Match Timestamp"), and explain why the website timestamp hadn't refreshed.
 
 ## What Changed
-- Expanded search queries in `mac_ebay_scanner/config.py` from 6 to 11 queries covering 256GB unified memory configurations (`Mac Studio 256GB`, `Mac Studio M4 256GB`, `Mac Studio M4 Ultra 256GB`, etc.).
-- Enhanced `mac_ebay_scanner/filter_engine.py`:
-  - Added support for 256GB Unified Memory / RAM.
-  - Implemented strict 256GB SSD trap prevention: rejects base laptops (e.g. 8GB RAM + 256GB SSD) by verifying RAM size in eBay structured aspects and title specs.
-- Updated `mac_ebay_scanner/storage.py` to track 128GB and 256GB models in dynamic category baselines.
-- Refined `mac_ebay_scanner/local_llm.py` so LOQ's `qwen2.5:7b` recognizes 256GB RAM as valid and focuses strictly on qualitative value evaluation without false-negative vetoes.
-- Added 3 unit tests in `tests/test_filter_engine.py` (total 17 passed).
-- Live verification on `encoder1`: Found 12 new listings including 256GB Mac Studio M3 Ultra ($8,850.00) and M5 Ultra configs, sent alerts to Pushbullet, and published 57 active listings to GitHub Pages.
+- Diagnosed root cause: `encoder1` was scanning actively every 3 minutes (08:31, 08:34, 08:37, 08:40, 08:43, 08:46, 08:49, 08:52, 08:55, 08:58, 09:01, 09:04), but `update_public_site()` was only conditioned on `matches_found > 0 or price_drops_detected > 0`. Since no new 128GB/256GB Macs were listed in those 35 minutes, the site timestamp remained at 08:28 AM.
+- Updating `scanner.py` to trigger periodic site updates (every 15 minutes or when matches occur) with a heartbeat mechanism.
+- Updating `site_generator.py` and `docs/index.html` to clearly display:
+  - `🟢 Scanner Online (Polling eBay every 3 mins)`
+  - `Last eBay Scan Check: [time]`
+  - `Last New Listing Found: [time]`
+  - `Total Listings Evaluated: [count]`
 
 ## Commands Run + Results
-- `python -m pytest tests -v` -> 17 passed in 0.34s.
-- `ssh encoder1 "cd /home/encoder1/MacEbayScanner && /home/encoder1/.local/bin/pytest tests -v"` -> 17 passed in 0.41s.
-- `systemctl --user restart mac-ebay-scanner.service` -> Running across 11 queries in `[Mode: Immediate Daytime]`.
-- Live Scan: Found 256GB Mac Studios (`Apple Mac Studio M3 Ultra 256GB RAM 1TB SSD - $9,997.00`, `Mac Studio M5 Ultra 256GB - $15,000.00`).
-- Dashboard updated at [https://buckwheet.github.io/MacEbayScanner/](https://buckwheet.github.io/MacEbayScanner/).
+- `journalctl --user -u mac-ebay-scanner.service -n 25` -> Verified scanner ran 12 scans between 08:31 and 09:04 CST, accurately filtering out non-target laptops.
 
 ## Files Touched
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\config.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\filter_engine.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\storage.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\local_llm.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\notifier.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\scanner.py`
-- `D:\Code Projects\MacEbayScanner\tests\test_filter_engine.py`
 - `D:\Code Projects\MacEbayScanner\PROJECT_STATE.md`
-- `encoder1:/home/encoder1/MacEbayScanner/*`
 
 ## Next 3 Actions
-- [x] Expanded target to 128GB and 256GB unified memory models.
-- [x] Verified SSD trap rejection and unit tests (17 passed).
-- [ ] Monitor incoming live Pushbullet notifications for 128GB & 256GB Mac deals.
+- [ ] Update `site_generator.py` with heartbeat metadata (last scanned, last match time, total processed).
+- [ ] Update `scanner.py` with 15-minute periodic site publish interval.
+- [ ] Push to GitHub and sync with `encoder1`.
