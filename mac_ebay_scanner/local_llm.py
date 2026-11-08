@@ -71,8 +71,8 @@ Mathematical Market Baseline:
         prompt = f"""You are an Apple Silicon hardware valuation expert.
 Target Criteria:
 - Model: Apple MacBook Pro OR Mac Studio
-- Processor: Apple Silicon M3, M4, or higher (e.g., M3 Max, M4 Max - Note: M4 Max is officially released). NEVER M1, M2, or Intel.
-- Memory: 128GB of Unified Memory (Note: 128GB is RAM, NOT SSD storage).
+- Processor: Apple Silicon M3, M4, or higher (e.g., M3 Max, M4 Max, M4 Ultra - Note: M4 Max/Ultra are officially released). NEVER M1, M2, or Intel.
+- Memory: 128GB or 256GB of Unified Memory (Note: 128GB/256GB must be RAM, NOT SSD storage).
 - Condition: Must be a working computer, NOT for parts, NOT iCloud/MDM locked, NOT an accessory/case/box.
 
 Listing Details:
@@ -83,7 +83,7 @@ Listing Details:
 - Detected Specs: {detected_model}, {detected_chip}, {detected_ram}
 {market_context}
 Task:
-1. Verify this is a working 128GB RAM Apple Silicon M3+ computer (not parts, lock, or accessory).
+1. Verify this is a working 128GB or 256GB RAM Apple Silicon M3+ computer (not parts, lock, or accessory).
 2. Assess qualitative value (look for SSD upgrades like 2TB/4TB/8TB, 100% battery, AppleCare+, or condition flaws).
 
 Output strictly a JSON object:
@@ -103,7 +103,7 @@ Output strictly a JSON object:
                     "format": "json",
                     "stream": False,
                 },
-                timeout=15,
+                timeout=30,
             )
             if resp.status_code == 200:
                 raw_response = resp.json().get("response", "{}")

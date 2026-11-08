@@ -174,6 +174,7 @@ class MacEbayScanner:
                             model=det_model,
                             chip=det_chip,
                             price=current_price,
+                            ram=det_ram,
                             discount_threshold_pct=self.config.deal_discount_percent,
                         )
 
@@ -207,7 +208,7 @@ class MacEbayScanner:
                 item_details = None
                 final_res = prelim
 
-                if prelim.matched or ("128" in title.lower() and ("mac" in title.lower() or "apple" in title.lower())):
+                if prelim.matched or (("128" in title.lower() or "256" in title.lower()) and ("mac" in title.lower() or "apple" in title.lower())):
                     item_details = self.ebay_client.get_item_details(item_id)
                     final_res = self.filter_engine.evaluate_item(item, item_details)
 
@@ -221,6 +222,7 @@ class MacEbayScanner:
                         model=model_name,
                         chip=chip_name,
                         price=current_price,
+                        ram=ram_name,
                         discount_threshold_pct=self.config.deal_discount_percent,
                     )
 

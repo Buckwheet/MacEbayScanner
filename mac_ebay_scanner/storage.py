@@ -207,22 +207,23 @@ class SeenStorage:
 
         return False, old_price, None, None
 
-    def get_category_key(self, model: Optional[str], chip: Optional[str]) -> str:
-        """Normalize model and chip into standard market category key."""
+    def get_category_key(self, model: Optional[str], chip: Optional[str], ram: Optional[str] = None) -> str:
+        """Normalize model, chip, and ram into standard market category key."""
         m_str = (model or "MacBook Pro").strip()
         c_str = (chip or "M3 Max").strip()
+        r_str = "256GB" if ram and "256" in ram else "128GB"
 
         m_chip = re.search(r"\b(m[3-9]|m[1-9][0-9])\s*(?:pro|max|ultra)?\b", c_str, re.IGNORECASE)
         chip_norm = m_chip.group(0).upper() if m_chip else c_str
 
-        return f"{m_str} {chip_norm} 128GB"
+        return f"{m_str} {chip_norm} {r_str}"
 
     def get_market_statistics(self) -> Dict[str, Dict[str, Any]]:
         """Compute market pricing statistics by model and chip category from matched items."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT model, chip, price
+                SELECT model, chip, ram, price
                 FROM seen_items
                 WHERE matched = 1 AND price IS NOT NULL AND price > 500
             """)
@@ -230,7 +231,7 @@ class SeenStorage:
 
         grouped: Dict[str, List[float]] = {}
         for r in rows:
-            cat = self.get_category_key(r["model"], r["chip"])
+            cat = self.get_category_key(r["model"], r["chip"], r["ram"])
             grouped.setdefault(cat, []).append(float(r["price"]))
 
         stats: Dict[str, Dict[str, Any]] = {}
@@ -251,11 +252,12 @@ class SeenStorage:
         model: str,
         chip: str,
         price: float,
+        ram: Optional[str] = None,
         discount_threshold_pct: float = 15.0,
     ) -> Tuple[bool, Optional[float], Optional[float], int]:
         """Evaluate if a listing price is significantly below market average."""
         market_stats = self.get_market_statistics()
-        cat_key = self.get_category_key(model, chip)
+        cat_key = self.get_category_key(model, chip, ram)
 
         stat = market_stats.get(cat_key)
         if not stat or stat["count"] < 2:

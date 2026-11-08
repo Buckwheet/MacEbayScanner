@@ -46,17 +46,18 @@ class MacFilterEngine:
         re.IGNORECASE
     )
 
+    # Target RAM patterns: 128GB or 256GB Unified Memory / RAM
     TARGET_RAM_PATTERNS = [
-        # Explicit 128GB RAM mentions
-        r"\b128\s*(?:gb|g)?\s*(?:ram|unified memory|memory|unified|ddr|um)\b",
-        r"\b(?:ram|memory|unified):\s*128\s*(?:gb)?\b",
-        # "M3 Max 128GB" or "M4 Max 128GB"
-        r"\b(m[3-9]|m[1-9][0-9])\s*(?:pro|max|ultra)?\s*128\s*(?:gb|g)?\b",
-        # Title ending with 128GB or containing 128GB when combined with Mac model
-        r"\b128\s*gb\b",
+        # Explicit 128GB or 256GB RAM mentions
+        r"\b(128|256)\s*(?:gb|g)?\s*(?:ram|unified memory|memory|unified|ddr|um)\b",
+        r"\b(?:ram|memory|unified):\s*(128|256)\s*(?:gb)?\b",
+        # "M3 Max 128GB" or "M4 Max 128GB" or "M4 Ultra 256GB"
+        r"\b(m[3-9]|m[1-9][0-9])\s*(?:pro|max|ultra)?\s*(128|256)\s*(?:gb|g)?\b",
+        # Model followed by 128GB or 256GB
+        r"\b(128|256)\s*gb\b",
     ]
 
-    # Non-128GB RAM mentions (e.g. 128GB SSD with 16GB RAM)
+    # Non-target RAM mentions (e.g. 256GB SSD with 8GB/16GB RAM)
     OTHER_RAM_PATTERNS = [
         r"\b(8|16|18|24|32|36|48|64|96)\s*(?:gb|g)?\s*(?:ram|unified|memory)\b",
         r"\b(?:ram|memory):\s*(8|16|18|24|32|36|48|64|96)\s*(?:gb)?\b",
@@ -171,46 +172,62 @@ class MacFilterEngine:
             if chip_gen < 3:
                 return MatchResult(False, f"Detected chip M{chip_gen} is below M3 requirement")
 
-        # 6. Memory (RAM) Detection: Must be 128GB
-        # Aspects check:
+        # 6. Memory (RAM) Detection: Must be 128GB or 256GB Unified Memory
         ram_aspect = aspects_dict.get("ram size", "") or aspects_dict.get("ram", "") or aspects_dict.get("memory", "")
         detected_ram = None
 
         if ram_aspect:
             ram_aspect_lower = ram_aspect.lower()
-            # If aspect says 16GB, 36GB, 48GB, 64GB, 96GB -> Definitely NOT 128GB
-            if "128" in ram_aspect:
-                detected_ram = ram_aspect
+            if "256" in ram_aspect:
+                detected_ram = "256GB"
+            elif "128" in ram_aspect:
+                detected_ram = "128GB"
             else:
-                return MatchResult(False, f"RAM aspect is {ram_aspect}, not 128GB")
+                return MatchResult(False, f"RAM aspect is {ram_aspect}, not 128GB or 256GB")
 
         # Storage vs RAM collision check:
-        # If title mentions 128GB SSD or 128GB Storage, beware
+        # Many base Macs have 256GB SSD or 128GB SSD with 8GB/16GB RAM
         ssd_aspect = aspects_dict.get("ssd capacity", "") or aspects_dict.get("storage capacity", "") or aspects_dict.get("hard drive capacity", "")
-        if "128" in ssd_aspect.lower() and detected_ram is None:
-            return MatchResult(False, "128GB is SSD storage capacity, not RAM")
+        if ("128" in ssd_aspect.lower() or "256" in ssd_aspect.lower()) and detected_ram is None:
+            return MatchResult(False, f"{ssd_aspect} is SSD storage capacity, not RAM")
 
         if not detected_ram:
-            # Check title for other RAM mentions (e.g. 16GB RAM, 36GB RAM, 48GB RAM, 64GB RAM)
+            # Check title for other low-RAM mentions (e.g. 8GB RAM, 16GB RAM, 24GB, 36GB)
             for other_ram in self.OTHER_RAM_PATTERNS:
                 if re.search(other_ram, title_lower):
-                    return MatchResult(False, f"Title mentions non-128GB RAM configuration")
+                    return MatchResult(False, "Title mentions non-target RAM configuration")
 
-            # Check if title has 128GB RAM pattern
-            has_128 = False
-            for p in self.TARGET_RAM_PATTERNS:
-                if re.search(p, title_lower):
-                    has_128 = True
-                    break
+            # Check if 256GB is explicitly identified as SSD in title without RAM mention
+            has_256_ssd_in_title = bool(re.search(r"\b256\s*(?:gb|g)?\s*(?:ssd|storage|flash|drive|rom)\b", title_lower))
+            has_explicit_target_ram = bool(re.search(r"\b(128|256)\s*(?:gb|g)?\s*(?:ram|unified|memory)\b", title_lower))
 
-            if not has_128:
-                return MatchResult(False, "Does not match 128GB RAM pattern")
+            if has_256_ssd_in_title and not has_explicit_target_ram:
+                return MatchResult(False, "256GB in title refers to SSD storage, not RAM")
 
-            detected_ram = "128GB"
+            # Check if title has target RAM pattern
+            matched_ram_val = None
+            if "256" in title_lower and not has_256_ssd_in_title:
+                for p in self.TARGET_RAM_PATTERNS:
+                    m = re.search(p, title_lower)
+                    if m and "256" in m.group(0):
+                        matched_ram_val = "256GB"
+                        break
+
+            if not matched_ram_val and "128" in title_lower:
+                for p in self.TARGET_RAM_PATTERNS:
+                    m = re.search(p, title_lower)
+                    if m and "128" in m.group(0):
+                        matched_ram_val = "128GB"
+                        break
+
+            if not matched_ram_val:
+                return MatchResult(False, "Does not match 128GB or 256GB RAM pattern")
+
+            detected_ram = matched_ram_val
 
         return MatchResult(
             matched=True,
-            reason="Verified M3+ MacBook Pro / Mac Studio with 128GB memory",
+            reason="Verified M3+ MacBook Pro / Mac Studio with target memory",
             detected_model=detected_model,
             detected_chip=detected_chip,
             detected_ram=detected_ram,

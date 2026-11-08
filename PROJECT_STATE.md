@@ -1,37 +1,24 @@
 # PROJECT_STATE.md
 
 ## Goal
-Build and deploy a public GitHub Pages live dashboard for M3+ 128GB Mac listings and price trends, shorten the Pushbullet morning digest to a clean summary linking to the site, and automate GitHub Pages deployment from `encoder1`.
+Expand eBay monitor and filter engine to target both 128GB and 256GB Unified Memory models (M3+ MacBook Pro and Mac Studio) for Splash LLM local workloads, with strict SSD-trap protection for 256GB storage.
 
 ## What Changed
-- Created public GitHub repository: [`https://github.com/Buckwheet/MacEbayScanner`](https://github.com/Buckwheet/MacEbayScanner).
-- Enabled GitHub Pages from `/docs` directory: live at [https://buckwheet.github.io/MacEbayScanner/](https://buckwheet.github.io/MacEbayScanner/).
-- Implemented static site generator `mac_ebay_scanner/site_generator.py`:
-  - Renders real-time category market price trends (Lowest, Average, Median).
-  - Modern dark-mode responsive UI with model/deal filters, search bar, and price sorting.
-  - Interactive cards featuring thumbnails, deal badges (`🔥 X% Under Market`), specs, LOQ AI value assessments, and direct eBay links.
-- Shortened Pushbullet overnight 5:00 AM CST digest to a clean, readable 5-line alert featuring the top 3 best deals and direct link to the live dashboard.
-- Configured dedicated ed25519 deploy key on `encoder1` with write access, enabling the background service on `encoder1` to automatically regenerate and publish live dashboard updates to GitHub Pages.
+- Starting task to support 256GB RAM models alongside 128GB RAM models:
+  - Add search queries for 256GB RAM (`Mac Studio 256GB`, `MacBook Pro 256GB`, etc.) in `config.py`.
+  - Update `filter_engine.py` to recognize 128GB and 256GB unified memory, while strictly rejecting base Macs that have 256GB SSD with low RAM.
+  - Update `storage.py` to categorize and compute market trends for 128GB and 256GB models.
+  - Update `local_llm.py` and `notifier.py` prompts and formatting.
+  - Write test cases for 256GB RAM detection and 256GB SSD trap rejection.
+  - Deploy to `encoder1`.
 
 ## Commands Run + Results
-- `gh repo create MacEbayScanner --public --source=. --remote=origin --push` -> Created public repository on GitHub.
-- `gh api -X POST repos/Buckwheet/MacEbayScanner/pages` -> Enabled GitHub Pages for `/docs`.
-- `Invoke-WebRequest -Uri 'https://buckwheet.github.io/MacEbayScanner/'` -> HTTP 200 (Dashboard live).
-- `python main.py digest --test` -> Verified shortened Pushbullet digest dispatched.
-- `ssh encoder1 "cd /home/encoder1/MacEbayScanner && git push origin main"` -> Successfully pushed live data from `encoder1`.
+- Previous deployment verified live on `encoder1` and GitHub Pages at `https://buckwheet.github.io/MacEbayScanner/`.
 
 ## Files Touched
-- `D:\Code Projects\MacEbayScanner\.gitignore`
-- `D:\Code Projects\MacEbayScanner\docs\index.html`
-- `D:\Code Projects\MacEbayScanner\docs\data.json`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\site_generator.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\notifier.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\scanner.py`
-- `D:\Code Projects\MacEbayScanner\mac_ebay_scanner\cli.py`
 - `D:\Code Projects\MacEbayScanner\PROJECT_STATE.md`
-- `encoder1:/home/encoder1/MacEbayScanner/*`
 
 ## Next 3 Actions
-- [x] Published public GitHub Pages site and verified HTTP 200.
-- [x] Shortened Pushbullet 5am digest to concise summary with link.
-- [x] Configured auto-publishing pipeline from `encoder1`.
+- [ ] Update `filter_engine.py`, `config.py`, `storage.py`, and `local_llm.py` to support 128GB and 256GB unified memory.
+- [ ] Write unit tests in `tests/test_filter_engine.py` verifying 256GB RAM support and 256GB SSD trap rejection.
+- [ ] Deploy updates to `encoder1`, rebuild site, and verify live monitor.

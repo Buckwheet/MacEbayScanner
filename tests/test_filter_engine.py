@@ -115,3 +115,49 @@ def test_reject_parts_only_by_default(engine):
     }
     res = engine.evaluate_item(summary)
     assert res.matched is False
+
+
+def test_positive_mac_studio_256gb_ram(engine):
+    summary = {
+        "title": "Apple Mac Studio M4 Ultra 256GB Unified Memory 2TB SSD Desktop",
+        "price": {"value": "8999.00", "currency": "USD"},
+    }
+    details = {
+        "localizedAspects": [
+            {"name": "Brand", "value": "Apple"},
+            {"name": "Model", "value": "Mac Studio"},
+            {"name": "Processor", "value": "Apple M4 Ultra"},
+            {"name": "RAM Size", "value": "256 GB"},
+        ]
+    }
+    res = engine.evaluate_item(summary, details)
+    assert res.matched is True
+    assert res.detected_model == "Mac Studio"
+    assert "256" in res.detected_ram
+
+
+def test_reject_256gb_ssd_with_8gb_ram_trap(engine):
+    summary = {
+        "title": "Apple MacBook Pro 14\" M3 8GB RAM 256GB SSD Space Gray A2992",
+        "price": {"value": "1199.00", "currency": "USD"},
+    }
+    res = engine.evaluate_item(summary)
+    assert res.matched is False
+
+
+def test_reject_256gb_ssd_in_aspect_with_low_ram(engine):
+    summary = {
+        "title": "Apple MacBook Pro 16\" M3 Max Space Black",
+        "price": {"value": "2600.00", "currency": "USD"},
+    }
+    details = {
+        "localizedAspects": [
+            {"name": "Model", "value": "MacBook Pro"},
+            {"name": "Processor", "value": "Apple M3 Max"},
+            {"name": "RAM Size", "value": "36 GB"},
+            {"name": "SSD Capacity", "value": "256 GB"},
+        ]
+    }
+    res = engine.evaluate_item(summary, details)
+    assert res.matched is False
+    assert "36" in res.reason or "not 128GB" in res.reason

@@ -48,6 +48,11 @@ class AppConfig:
         'MacBook Pro M4 Max 128GB',
         'Mac Studio M3 128GB',
         'Mac Studio M4 128GB',
+        'Mac Studio 256GB',
+        'MacBook Pro 256GB',
+        'Mac Studio M4 256GB',
+        'Mac Studio M4 Ultra 256GB',
+        'Mac Studio 256GB Unified Memory',
     ])
 
     def validate(self, require_pushbullet: bool = False) -> List[str]:
