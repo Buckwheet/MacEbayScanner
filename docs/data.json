@@ -1,9 +1,9 @@
 {
-  "last_scanned": "November 09, 2026 at 05:43 AM CST",
-  "last_scanned_short": "05:43 AM CST",
-  "last_match_time": "Nov 09, 05:25 AM CST",
-  "total_processed": 299,
-  "total_matches": 80,
+  "last_scanned": "November 09, 2026 at 05:49 AM CST",
+  "last_scanned_short": "05:49 AM CST",
+  "last_match_time": "Nov 09, 05:49 AM CST",
+  "total_processed": 300,
+  "total_matches": 81,
   "total_filtered": 219,
   "total_price_updates": 13,
   "market_stats": {
@@ -50,10 +50,10 @@
       "max": 15000.0
     },
     "Mac Studio M5 MAX 128GB": {
-      "count": 2,
-      "min": 6450.0,
-      "avg": 6966.99,
-      "median": 6966.99,
+      "count": 3,
+      "min": 6350.0,
+      "avg": 6761.33,
+      "median": 6450.0,
       "max": 7483.99
     }
   },
@@ -211,31 +211,31 @@
       "model": "Mac Studio",
       "chip": "M5 MAX",
       "ram": "128GB",
-      "count": 2,
-      "min": 6450.0,
-      "avg": 6966.99,
-      "median": 6966.99,
+      "count": 3,
+      "min": 6350.0,
+      "avg": 6761.33,
+      "median": 6450.0,
       "max": 7483.99,
-      "deal_threshold": 5921.94,
+      "deal_threshold": 5747.13,
       "conditions": {
-        "New": 2
+        "New": 3
       },
       "storage_spread": {
-        "1TB": 1,
+        "1TB": 2,
         "2TB": 1
       },
       "best_deal": {
         "title": "NEW SEALED 2026 Apple Mac Studio * M5 Max * 18-core CPU 40-core GPU 128GB 1TB",
-        "price": 6450.0,
-        "url": "https://www.ebay.com/itm/168836152026?_skw=Mac+Studio+128GB&hash=item274f6b3ada:g:qA0AAeSwZwBq6mjs",
-        "seller": "crystaworld",
+        "price": 6350.0,
+        "url": "https://www.ebay.com/itm/267827531806?_skw=Mac+Studio+128GB&hash=item3e5bc3d01e:g:4yIAAeSwfiFq46f7",
+        "seller": "stevola",
         "condition": "New"
       },
-      "price_spread_pct": 16.0,
+      "price_spread_pct": 17.9,
       "bandwidth_gb_s": 640,
       "tok_s_27b": 26.7,
       "tok_s_70b": 11.4,
-      "llm_value_score": 3.83
+      "llm_value_score": 3.95
     },
     {
       "category": "Mac Studio M3 ULTRA 256GB",
@@ -312,6 +312,40 @@
     }
   ],
   "items": [
+    {
+      "item_id": "v1|267827531806|0",
+      "title": "NEW SEALED 2026 Apple Mac Studio * M5 Max * 18-core CPU 40-core GPU 128GB 1TB",
+      "price": 6350.0,
+      "currency": "USD",
+      "url": "https://www.ebay.com/itm/267827531806?_skw=Mac+Studio+128GB&hash=item3e5bc3d01e:g:4yIAAeSwfiFq46f7",
+      "model": "Mac Studio",
+      "chip": "Apple M5 Max",
+      "ram": "128GB",
+      "ram_display": "128GB Unified Memory",
+      "condition": "New",
+      "seller": "stevola",
+      "llm_analysis": "The listing appears to be for a non-working Mac Studio, which significantly reduces its value and does not meet the target criteria.",
+      "filter_reason": null,
+      "is_matched": true,
+      "image_url": "https://i.ebayimg.com/images/g/4yIAAeSwfiFq46f7/s-l225.jpg",
+      "category": "Mac Studio M5 MAX 128GB",
+      "market_avg": 6761.33,
+      "diff": 411.33,
+      "discount_pct": 6.1,
+      "is_deal": false,
+      "bandwidth_gb_s": 640,
+      "tok_s_27b": 26.7,
+      "tok_s_70b": 11.4,
+      "llm_value_score": 4.2,
+      "first_seen_at": "2026-11-09T11:49:22.657477+00:00",
+      "discovered_str": "Nov 09, 05:49 AM CST",
+      "last_updated_at": "2026-11-09T11:49:22.657477+00:00",
+      "updated_str": "",
+      "has_price_change": false,
+      "previous_price": null,
+      "price_change_diff": 0.0,
+      "price_change_pct": 0.0
+    },
     {
       "item_id": "v1|377632691865|0",
       "title": "Apple MacBook Pro 16in (2024) M4 Max 128GB RAM 2TB SSD",
@@ -2471,7 +2505,7 @@
       "is_matched": true,
       "image_url": "https://i.ebayimg.com/images/g/muYAAeSw-7Bq512I/s-l225.jpg",
       "category": "Mac Studio M5 MAX 128GB",
-      "market_avg": 6966.99,
+      "market_avg": 6761.33,
       "diff": 0.0,
       "discount_pct": 0.0,
       "is_deal": false,
@@ -2607,9 +2641,9 @@
       "is_matched": true,
       "image_url": "https://i.ebayimg.com/images/g/qA0AAeSwZwBq6mjs/s-l225.jpg",
       "category": "Mac Studio M5 MAX 128GB",
-      "market_avg": 6966.99,
-      "diff": 516.99,
-      "discount_pct": 7.4,
+      "market_avg": 6761.33,
+      "diff": 311.33,
+      "discount_pct": 4.6,
       "is_deal": false,
       "bandwidth_gb_s": 640,
       "tok_s_27b": 26.7,
