@@ -90,18 +90,19 @@ def generate_static_site(
     db_stats = storage.get_stats()
     market_stats = storage.get_market_statistics()
     all_seen = storage.get_all_seen_items(limit=1000)
-    matched_items = [it for it in all_seen if it.get("matched") == 1]
+    active_matched = [it for it in all_seen if it.get("matched") == 1 and not it.get("is_sold")]
+    sold_items = [it for it in all_seen if it.get("matched") == 1 and it.get("is_sold")]
     filtered_items = [it for it in all_seen if it.get("matched") != 1]
     price_history_map = storage.get_price_history_map()
 
-    # Format the time of the most recent match
+    # Format the time of the most recent active match
     last_match_time_str = "None yet"
-    if matched_items:
+    if active_matched:
         try:
-            m_dt = datetime.fromisoformat(matched_items[0]["first_seen_at"])
+            m_dt = datetime.fromisoformat(active_matched[0]["first_seen_at"])
             last_match_time_str = m_dt.astimezone(cst_tz).strftime("%b %d, %I:%M %p CST")
         except Exception:
-            last_match_time_str = matched_items[0].get("first_seen_at", "")[:16]
+            last_match_time_str = active_matched[0].get("first_seen_at", "")[:16]
 
     # Process items to attach market delta and deal badges
     processed_items = []
@@ -225,6 +226,8 @@ def generate_static_site(
             "llm_analysis": it.get("llm_analysis") or "",
             "filter_reason": filter_reason,
             "is_matched": is_matched,
+            "is_sold": bool(it.get("is_sold")),
+            "sold_at": it.get("sold_at"),
             "image_url": image_url,
             "category": cat_key,
             "market_avg": avg_price,
@@ -253,13 +256,14 @@ def generate_static_site(
         t["tok_s_70b"] = hw["tok_s_70b"]
         t["llm_value_score"] = hw["llm_value_score"]
 
-    total_price_updates = sum(1 for it in processed_items if it.get("has_price_change"))
+    total_price_updates = sum(1 for it in processed_items if it.get("has_price_change") and not it.get("is_sold"))
     site_data = {
         "last_scanned": timestamp_str,
         "last_scanned_short": time_only_str,
         "last_match_time": last_match_time_str,
         "total_processed": len(processed_items),
-        "total_matches": len(matched_items),
+        "total_matches": len(active_matched),
+        "total_sold": len(sold_items),
         "total_filtered": len(filtered_items),
         "total_price_updates": total_price_updates,
         "market_stats": market_stats,
@@ -335,7 +339,7 @@ def generate_static_site(
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Matching Machines</div>
-        <div id="matchingCount" class="text-sm font-bold text-blue-400 mt-0.5">{len(matched_items)} verified</div>
+        <div id="matchingCount" class="text-sm font-bold text-blue-400 mt-0.5">{len(active_matched)} active</div>
       </div>
       <div class="glass p-3 rounded-xl border border-gray-800/80">
         <div class="text-[11px] uppercase tracking-wider text-gray-400">Price Updates</div>
@@ -408,9 +412,12 @@ def generate_static_site(
 
     <!-- Listings View Mode Switcher -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-      <div class="flex items-center gap-1.5 p-1 rounded-xl bg-gray-900 border border-gray-800 self-start">
+      <div class="flex items-center gap-1.5 p-1 rounded-xl bg-gray-900 border border-gray-800 self-start flex-wrap">
         <button onclick="setViewMode('matched')" id="tabMatched" class="view-mode-tab active text-xs px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold transition cursor-pointer" data-view="matched">
-          <i class="fas fa-check-circle mr-1 text-emerald-400"></i> Verified Matches (<span id="matchedCountTab">0</span>)
+          <i class="fas fa-check-circle mr-1 text-emerald-400"></i> Active Matches (<span id="matchedCountTab">0</span>)
+        </button>
+        <button onclick="setViewMode('sold')" id="tabSold" class="view-mode-tab text-xs px-3.5 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer" data-view="sold">
+          <i class="fas fa-tag mr-1 text-red-400"></i> Sold / Ended (<span id="soldCountTab">0</span>)
         </button>
         <button onclick="setViewMode('filtered')" id="tabFiltered" class="view-mode-tab text-xs px-3.5 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer" data-view="filtered">
           <i class="fas fa-filter-circle-xmark mr-1 text-amber-400"></i> Filtered Out (<span id="filteredCountTab">0</span>)
@@ -666,13 +673,16 @@ def generate_static_site(
       const query = document.getElementById('searchInput').value.toLowerCase();
       const sort = document.getElementById('sortSelect').value;
 
-      const matchedTotal = DATA.items.filter(it => it.is_matched).length;
+      const matchedTotal = DATA.items.filter(it => it.is_matched && !it.is_sold).length;
+      const soldTotal = DATA.items.filter(it => it.is_matched && it.is_sold).length;
       const filteredTotal = DATA.items.filter(it => !it.is_matched).length;
       const allTotal = DATA.items.length;
-      const updatedTotal = DATA.items.filter(it => it.has_price_change).length;
+      const updatedTotal = DATA.items.filter(it => it.has_price_change && !it.is_sold).length;
 
       const mTab = document.getElementById('matchedCountTab');
       if (mTab) mTab.innerText = matchedTotal;
+      const sTab = document.getElementById('soldCountTab');
+      if (sTab) sTab.innerText = soldTotal;
       const fTab = document.getElementById('filteredCountTab');
       if (fTab) fTab.innerText = filteredTotal;
       const aTab = document.getElementById('allCountTab');
@@ -684,7 +694,8 @@ def generate_static_site(
       if (uStat) uStat.innerText = `${{updatedTotal}} tracked`;
 
       let items = DATA.items.filter(it => {{
-        if (currentViewMode === 'matched' && !it.is_matched) return false;
+        if (currentViewMode === 'matched' && (!it.is_matched || it.is_sold)) return false;
+        if (currentViewMode === 'sold' && (!it.is_matched || !it.is_sold)) return false;
         if (currentViewMode === 'filtered' && it.is_matched) return false;
 
         if (currentFilter === 'MacBook Pro' && it.model !== 'MacBook Pro') return false;
@@ -793,9 +804,16 @@ def generate_static_site(
           return;
         }}
 
-        card.className = 'glass-card rounded-2xl p-5 flex flex-col justify-between';
+        card.className = it.is_sold 
+          ? 'glass-card rounded-2xl p-5 flex flex-col justify-between border-red-500/30 bg-gray-950/60 opacity-80'
+          : 'glass-card rounded-2xl p-5 flex flex-col justify-between';
 
-        const dealBadge = it.is_deal ? 
+        const soldBadge = it.is_sold ? 
+          `<span class="px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-semibold flex items-center gap-1">
+            <i class="fas fa-tag"></i> SOLD / ENDED
+          </span>` : '';
+
+        const dealBadge = (!it.is_sold && it.is_deal) ? 
           `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold">🔥 ${{it.discount_pct}}% Under Market</span>` : '';
 
         const priceUpdateBadge = it.has_price_change ? 
@@ -833,6 +851,7 @@ def generate_static_site(
                 </span>
               </div>
               <div class="flex items-center gap-1.5 flex-wrap justify-end">
+                ${{soldBadge}}
                 ${{dealBadge}}
                 ${{priceUpdateBadge}}
               </div>
@@ -896,9 +915,13 @@ def generate_static_site(
               <i class="fas fa-microchip ${{is256 ? 'text-purple-400' : 'text-blue-400'}}"></i>
               ${{ramFooterText}}
             </span>
+            ${{it.is_sold ? `
+            <a href="${{it.url}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-950/40 text-red-300 hover:text-white border border-red-800/40 hover:bg-red-900/50 transition">
+              Ended on eBay <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
+            </a>` : `
             <a href="${{it.url}}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition">
               View on eBay <i class="fas fa-arrow-up-right-from-square text-[10px]"></i>
-            </a>
+            </a>`}}
           </div>
         `;
         grid.appendChild(card);

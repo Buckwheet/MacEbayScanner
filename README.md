@@ -105,6 +105,16 @@ python main.py matches
 python main.py stats
 ```
 
+### Check & Remove Sold / Ended Listings
+Scan active matched listings against eBay's Browse API and mark or remove sold items:
+```powershell
+python main.py remove-sold
+```
+To permanently delete sold items from the database instead of archiving:
+```powershell
+python main.py remove-sold --purge
+```
+
 ---
 
 ## Run as a Windows Background Task / Startup

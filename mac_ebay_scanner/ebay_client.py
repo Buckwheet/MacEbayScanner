@@ -1,6 +1,7 @@
 import base64
 import time
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import requests
 
@@ -104,3 +105,88 @@ class EbayClient:
         except requests.RequestException as e:
             logger.warning(f"Network error fetching item details for {item_id}: {e}")
             return None
+
+    def check_item_availability(self, item_id: str) -> Dict[str, Any]:
+        """
+        Check if an item is still active or sold/ended.
+        Returns a dict:
+            {
+                "is_sold": bool,
+                "reason": str,  # 'ACTIVE', 'OUT_OF_STOCK', 'LISTING_ENDED', 'NOT_FOUND_OR_ENDED'
+                "remaining_quantity": int,
+                "sold_quantity": int,
+                "details": Optional[Dict[str, Any]]
+            }
+        """
+        details = self.get_item_details(item_id)
+        if details is None:
+            return {
+                "is_sold": True,
+                "reason": "NOT_FOUND_OR_ENDED",
+                "remaining_quantity": 0,
+                "sold_quantity": 0,
+                "details": None,
+            }
+
+        avails = details.get("estimatedAvailabilities") or []
+        sold_qty = 0
+        rem_qty = None
+        avail_qty = None
+        status = None
+
+        if avails and isinstance(avails, list):
+            first_avail = avails[0]
+            status = first_avail.get("estimatedAvailabilityStatus")
+            sold_qty = first_avail.get("estimatedSoldQuantity", 0)
+            rem_qty = first_avail.get("estimatedRemainingQuantity")
+            avail_qty = first_avail.get("estimatedAvailableQuantity")
+
+            if status == "OUT_OF_STOCK":
+                return {
+                    "is_sold": True,
+                    "reason": "OUT_OF_STOCK",
+                    "remaining_quantity": 0,
+                    "sold_quantity": sold_qty,
+                    "details": details,
+                }
+            if rem_qty is not None and rem_qty == 0:
+                return {
+                    "is_sold": True,
+                    "reason": "OUT_OF_STOCK",
+                    "remaining_quantity": 0,
+                    "sold_quantity": sold_qty,
+                    "details": details,
+                }
+            if avail_qty is not None and avail_qty == 0:
+                return {
+                    "is_sold": True,
+                    "reason": "OUT_OF_STOCK",
+                    "remaining_quantity": 0,
+                    "sold_quantity": sold_qty,
+                    "details": details,
+                }
+
+        end_date_str = details.get("itemEndDate")
+        if end_date_str:
+            try:
+                # Handle ISO format with trailing 'Z'
+                clean_end_str = end_date_str.replace("Z", "+00:00")
+                end_dt = datetime.fromisoformat(clean_end_str)
+                if end_dt < datetime.now(timezone.utc):
+                    return {
+                        "is_sold": True,
+                        "reason": "LISTING_ENDED",
+                        "remaining_quantity": 0,
+                        "sold_quantity": sold_qty,
+                        "details": details,
+                    }
+            except Exception as e:
+                logger.debug(f"Could not parse itemEndDate '{end_date_str}' for {item_id}: {e}")
+
+        return {
+            "is_sold": False,
+            "reason": "ACTIVE",
+            "remaining_quantity": rem_qty if rem_qty is not None else 1,
+            "sold_quantity": sold_qty,
+            "details": details,
+        }

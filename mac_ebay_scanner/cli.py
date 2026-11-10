@@ -259,7 +259,9 @@ def cmd_stats(args):
     table.add_column("Count", style="green")
 
     table.add_row("Total Items Processed", str(stats["total_seen"]))
-    table.add_row("Matched M3+ 128GB Mac Items", str(stats["total_matched"]))
+    table.add_row("Total Matched Items (All Time)", str(stats["total_matched"]))
+    table.add_row("Active Matching Machines", str(stats.get("active_matched", stats["total_matched"])))
+    table.add_row("Sold / Ended Items", str(stats.get("total_sold", 0)))
     table.add_row("Push Notifications Sent", str(stats["total_notified"]))
     table.add_row("Price History Data Points", str(stats["price_history_records"]))
 
@@ -270,13 +272,21 @@ def cmd_matches(args):
     """List recent matches found in database."""
     config = get_config()
     storage = SeenStorage(db_path=config.db_path)
-    matches = storage.get_matched_items(limit=args.limit)
+
+    if getattr(args, "sold_only", False):
+        matches = storage.get_sold_items(limit=args.limit)
+        title_suffix = " (Sold / Ended Listings)"
+    else:
+        include_sold = getattr(args, "all", False) or getattr(args, "include_sold", False)
+        matches = storage.get_matched_items(limit=args.limit, include_sold=include_sold)
+        title_suffix = " (All Matches)" if include_sold else " (Active Only)"
 
     if not matches:
         console.print("[yellow]No matched items found in database yet.[/yellow]")
         return
 
-    table = Table(title=f"Recent Matches (Showing {len(matches)})")
+    table = Table(title=f"Matches Found{title_suffix} (Showing {len(matches)})")
+    table.add_column("Status", style="bold")
     table.add_column("Model", style="cyan")
     table.add_column("Chip", style="magenta")
     table.add_column("RAM", style="blue")
@@ -285,8 +295,11 @@ def cmd_matches(args):
     table.add_column("URL", style="dim")
 
     for m in matches:
+        is_sold = bool(m.get("is_sold"))
+        status_str = "[red]SOLD[/red]" if is_sold else "[green]ACTIVE[/green]"
         price_str = f"${m['price']:,.2f} {m['currency']}" if m['price'] else "N/A"
         table.add_row(
+            status_str,
             m["model"] or "Mac",
             m["chip"] or "M3+",
             m["ram"] or "128GB",
@@ -296,6 +309,69 @@ def cmd_matches(args):
         )
 
     console.print(table)
+
+
+def cmd_remove_sold(args):
+    """Check active matched items on eBay and remove/mark sold or ended listings."""
+    config = get_config()
+    console.print(Panel("[bold cyan]Scanning Active Matches for Sold / Ended Listings[/bold cyan]"))
+
+    storage = SeenStorage(db_path=config.db_path)
+    client = EbayClient(
+        client_id=config.ebay_client_id,
+        client_secret=config.ebay_client_secret,
+        marketplace=config.ebay_marketplace,
+    )
+
+    active_items = storage.get_matched_items(limit=500, include_sold=False)
+    console.print(f"Checking [bold cyan]{len(active_items)}[/bold cyan] active matched listings against eBay Browse API...")
+
+    sold_found = []
+    active_count = 0
+
+    with console.status("[bold green]Checking eBay availability...[/bold green]"):
+        for it in active_items:
+            iid = it["item_id"]
+            avail = client.check_item_availability(iid)
+            if avail["is_sold"]:
+                sold_found.append({
+                    "item_id": iid,
+                    "title": it.get("title", ""),
+                    "price": it.get("price"),
+                    "reason": avail["reason"],
+                    "sold_qty": avail.get("sold_quantity", 0),
+                })
+                if getattr(args, "purge", False):
+                    storage.delete_item(iid)
+                else:
+                    storage.mark_item_sold(iid)
+            else:
+                active_count += 1
+
+    if not sold_found:
+        console.print("[green]✓ All checked matched listings are currently active and available![/green]")
+    else:
+        action_verb = "Permanently deleted" if getattr(args, "purge", False) else "Marked as sold"
+        console.print(f"[bold red]Detected {len(sold_found)} sold/ended listing(s):[/bold red]")
+        table = Table(title=f"Removed / Sold Listings ({action_verb})")
+        table.add_column("Item ID", style="dim")
+        table.add_column("Reason", style="red")
+        table.add_column("Price", style="green")
+        table.add_column("Title", style="white")
+
+        for s in sold_found:
+            table.add_row(
+                s["item_id"][:18] + "...",
+                s["reason"],
+                f"${s['price']:,.2f}" if s.get("price") else "N/A",
+                (s["title"] or "")[:50],
+            )
+        console.print(table)
+
+    console.print(f"Summary: [bold green]{active_count} active[/bold green], [bold red]{len(sold_found)} removed/sold[/bold red].")
+
+    if not getattr(args, "no_rebuild", False):
+        cmd_build_site(args)
 
 
 def cmd_scan(args):
@@ -378,6 +454,17 @@ def main():
     # matches
     matches_parser = subparsers.add_parser("matches", help="List matches saved in database")
     matches_parser.add_argument("--limit", type=int, default=20, help="Max matches to display")
+    matches_parser.add_argument("--all", action="store_true", help="Include sold/ended listings")
+    matches_parser.add_argument("--sold-only", action="store_true", help="Show only sold/ended listings")
+
+    # remove-sold / check-sold
+    remove_sold_parser = subparsers.add_parser("remove-sold", help="Check active matches against eBay and mark/remove sold listings")
+    remove_sold_parser.add_argument("--purge", action="store_true", help="Permanently delete sold items instead of marking as sold")
+    remove_sold_parser.add_argument("--no-rebuild", action="store_true", help="Skip static website regeneration")
+
+    check_sold_parser = subparsers.add_parser("check-sold", help="Alias for remove-sold")
+    check_sold_parser.add_argument("--purge", action="store_true", help="Permanently delete sold items instead of marking as sold")
+    check_sold_parser.add_argument("--no-rebuild", action="store_true", help="Skip static website regeneration")
 
     # reconcile
     reconcile_parser = subparsers.add_parser("reconcile", help="Reconcile database items with filter criteria")
@@ -389,6 +476,8 @@ def main():
         cmd_build_site(args)
     elif args.command == "reconcile":
         cmd_reconcile(args)
+    elif args.command in ("remove-sold", "check-sold"):
+        cmd_remove_sold(args)
     elif args.command == "digest":
         cmd_digest(args)
     elif args.command == "test-loq":

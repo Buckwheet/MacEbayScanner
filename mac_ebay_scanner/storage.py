@@ -39,6 +39,8 @@ class SeenStorage:
                     matched INTEGER DEFAULT 0,
                     notified INTEGER DEFAULT 0,
                     digest_sent INTEGER DEFAULT 0,
+                    is_sold INTEGER DEFAULT 0,
+                    sold_at TEXT,
                     llm_analysis TEXT,
                     filter_reason TEXT,
                     first_seen_at TEXT NOT NULL,
@@ -69,6 +71,10 @@ class SeenStorage:
             columns = [row["name"] for row in cursor.fetchall()]
             if "digest_sent" not in columns:
                 conn.execute("ALTER TABLE seen_items ADD COLUMN digest_sent INTEGER DEFAULT 0")
+            if "is_sold" not in columns:
+                conn.execute("ALTER TABLE seen_items ADD COLUMN is_sold INTEGER DEFAULT 0")
+            if "sold_at" not in columns:
+                conn.execute("ALTER TABLE seen_items ADD COLUMN sold_at TEXT")
             if "llm_analysis" not in columns:
                 conn.execute("ALTER TABLE seen_items ADD COLUMN llm_analysis TEXT")
             if "last_updated_at" not in columns:
@@ -81,6 +87,8 @@ class SeenStorage:
             conn.execute("UPDATE seen_items SET ram = '128GB' WHERE ram LIKE '%128%' AND ram != '128GB'")
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_matched ON seen_items(matched);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_is_sold ON seen_items(is_sold);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_matched_sold ON seen_items(matched, is_sold);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seen_legacy ON seen_items(legacy_item_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_item ON price_history(item_id);")
             conn.commit()
@@ -143,9 +151,9 @@ class SeenStorage:
                 """
                 INSERT OR REPLACE INTO seen_items (
                     item_id, legacy_item_id, title, price, currency, url, condition, seller,
-                    model, chip, ram, matched, notified, digest_sent, llm_analysis, filter_reason,
+                    model, chip, ram, matched, notified, digest_sent, is_sold, sold_at, llm_analysis, filter_reason,
                     first_seen_at, last_updated_at, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -193,9 +201,9 @@ class SeenStorage:
         old_price = float(existing["price"])
         now = datetime.now(timezone.utc).isoformat()
 
-        # If the item is not a matched target machine, update its price in seen_items
+        # If the item is not a matched target machine or is marked sold, update its price in seen_items
         # but NEVER trigger price-drop alerts or append to price_history
-        if not existing.get("matched"):
+        if not existing.get("matched") or existing.get("is_sold"):
             if current_price != old_price:
                 with self._get_connection() as conn:
                     conn.execute(
@@ -413,14 +421,14 @@ class SeenStorage:
         return False, avg_val, 0.0, sample_count
 
     def get_queued_digest_items(self) -> List[Dict[str, Any]]:
-        """Retrieve matched items that were queued overnight and not yet notified or included in a digest."""
+        """Retrieve matched items that were queued overnight and not yet notified or included in a digest (excluding sold)."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT item_id, title, price, currency, url, model, chip, ram, condition, seller,
                        llm_analysis, first_seen_at
                 FROM seen_items
-                WHERE matched = 1 AND notified = 0 AND digest_sent = 0
+                WHERE matched = 1 AND notified = 0 AND digest_sent = 0 AND (is_sold IS NULL OR is_sold = 0)
                 ORDER BY price ASC
             """)
             return [dict(r) for r in cursor.fetchall()]
@@ -456,7 +464,7 @@ class SeenStorage:
             conn.commit()
 
     def get_stats(self) -> Dict[str, int]:
-        """Return total seen, matched, and notified item counts."""
+        """Return total seen, matched, active matched, sold, and notified item counts."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*), SUM(matched), SUM(notified) FROM seen_items")
@@ -465,15 +473,23 @@ class SeenStorage:
             matched = row[1] or 0
             notified = row[2] or 0
 
+            cursor.execute("SELECT COUNT(*) FROM seen_items WHERE matched = 1 AND (is_sold IS NULL OR is_sold = 0)")
+            active_matched = cursor.fetchone()[0] or 0
+
+            cursor.execute("SELECT COUNT(*) FROM seen_items WHERE is_sold = 1")
+            sold_count = cursor.fetchone()[0] or 0
+
             cursor.execute("SELECT COUNT(*) FROM price_history")
             ph_count = cursor.fetchone()[0] or 0
 
-            cursor.execute("SELECT COUNT(*) FROM seen_items WHERE matched = 1 AND notified = 0 AND digest_sent = 0")
+            cursor.execute("SELECT COUNT(*) FROM seen_items WHERE matched = 1 AND notified = 0 AND digest_sent = 0 AND (is_sold IS NULL OR is_sold = 0)")
             queued_count = cursor.fetchone()[0] or 0
 
             return {
                 "total_seen": total,
                 "total_matched": matched,
+                "active_matched": active_matched,
+                "total_sold": sold_count,
                 "total_notified": notified,
                 "price_history_records": ph_count,
                 "overnight_queued_items": queued_count,
@@ -497,22 +513,89 @@ class SeenStorage:
                 })
             return history
 
-    def get_matched_items(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Retrieve recent matched items."""
+    def get_matched_items(self, limit: int = 50, include_sold: bool = False) -> List[Dict[str, Any]]:
+        """Retrieve recent matched items. By default excludes sold/ended items."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            where_sql = "WHERE matched = 1"
+            if not include_sold:
+                where_sql += " AND (is_sold IS NULL OR is_sold = 0)"
             cursor.execute(
-                """
+                f"""
                 SELECT item_id, title, price, currency, url, model, chip, ram, condition, seller,
-                       llm_analysis, first_seen_at, last_updated_at
+                       llm_analysis, first_seen_at, last_updated_at, is_sold, sold_at
                 FROM seen_items
-                WHERE matched = 1
+                {where_sql}
                 ORDER BY first_seen_at DESC
                 LIMIT ?
                 """,
                 (limit,),
             )
             return [dict(r) for r in cursor.fetchall()]
+
+    def get_sold_items(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieve items marked as sold or ended."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT item_id, title, price, currency, url, model, chip, ram, condition, seller,
+                       llm_analysis, first_seen_at, last_updated_at, is_sold, sold_at
+                FROM seen_items
+                WHERE is_sold = 1
+                ORDER BY sold_at DESC, first_seen_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def mark_item_sold(self, item_id: str, sold_at: Optional[str] = None) -> bool:
+        """Mark an item as sold or ended."""
+        now = sold_at or datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE seen_items SET is_sold = 1, sold_at = ?, last_updated_at = ? WHERE item_id = ?",
+                (now, now, item_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def mark_item_active(self, item_id: str) -> bool:
+        """Mark an item as active (not sold)."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE seen_items SET is_sold = 0, sold_at = NULL, last_updated_at = ? WHERE item_id = ?",
+                (now, item_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_item(self, item_id: str) -> bool:
+        """Permanently delete an item and its price history from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            conn.execute("DELETE FROM price_history WHERE item_id = ?", (item_id,))
+            cursor.execute("DELETE FROM seen_items WHERE item_id = ?", (item_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_sold_items(self) -> int:
+        """Permanently delete all items marked as sold from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_id FROM seen_items WHERE is_sold = 1")
+            sold_ids = [row["item_id"] for row in cursor.fetchall()]
+            if not sold_ids:
+                return 0
+            placeholders = ",".join("?" for _ in sold_ids)
+            conn.execute(f"DELETE FROM price_history WHERE item_id IN ({placeholders})", tuple(sold_ids))
+            cursor.execute(f"DELETE FROM seen_items WHERE item_id IN ({placeholders})", tuple(sold_ids))
+            conn.commit()
+            return len(sold_ids)
 
     def get_all_seen_items(self, limit: int = 1000) -> List[Dict[str, Any]]:
         """Retrieve all evaluated items (both matched and non-matched)."""
@@ -521,7 +604,7 @@ class SeenStorage:
             cursor.execute(
                 """
                 SELECT item_id, title, price, currency, url, model, chip, ram, matched, condition, seller,
-                       llm_analysis, filter_reason, first_seen_at, last_updated_at, raw_json
+                       llm_analysis, filter_reason, first_seen_at, last_updated_at, is_sold, sold_at, raw_json
                 FROM seen_items
                 ORDER BY matched DESC, first_seen_at DESC
                 LIMIT ?

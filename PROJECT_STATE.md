@@ -1,38 +1,54 @@
 # PROJECT_STATE.md
 
 ## Goal
-Add "Discovered" timestamp and "Updated" (price change tracking with previous price and delta) to each listing card in the dashboard, with sorting and filtering options.
+Detect and remove sold/ended eBay items from active matched listings in the scanner, local database, and public GitHub Pages dashboard.
 
 ## What Changed
-- Added `get_price_history_map()` in `mac_ebay_scanner/storage.py` to extract full historical price timelines and included `last_updated_at` in queries.
+- Added `check_item_availability()` to `mac_ebay_scanner/ebay_client.py`:
+  - Detects `OUT_OF_STOCK` and 0 remaining/available quantity in `estimatedAvailabilities`.
+  - Detects expired `itemEndDate` in the past (`LISTING_ENDED`).
+  - Detects 404 / `None` from eBay Browse API (`NOT_FOUND_OR_ENDED`).
+- Updated `mac_ebay_scanner/storage.py`:
+  - Added `is_sold INTEGER DEFAULT 0` and `sold_at TEXT` columns with indexes to `seen_items`.
+  - Added methods `mark_item_sold()`, `mark_item_active()`, `delete_item()`, `delete_sold_items()`, and `get_sold_items()`.
+  - Updated `get_matched_items()` to filter out sold items by default (`include_sold=False`).
+  - Updated `get_stats()` to track `active_matched` and `total_sold`.
+  - Updated `get_queued_digest_items()` and `check_and_update_price()` to bypass sold items.
+- Updated `mac_ebay_scanner/scanner.py`:
+  - Added `check_sold_items(max_items=5)` to perform round-robin checks on active matched listings without exceeding eBay API rate limits.
+  - Automatically marks sold items in storage and flags `has_updates` to trigger site push.
+  - Reactivates listings if a previously sold item reappears in active eBay search results.
 - Updated `mac_ebay_scanner/site_generator.py`:
-  - Formatted `discovered_str` in CST for all items from `first_seen_at`.
-  - Added price change detection computing `previous_price`, `price_change_diff`, and `price_change_pct`.
-  - Enhanced dashboard UI:
-    - Added "Discovered: [Time] ([TimeAgo])" to each card (both verified matches and filtered-out cards).
-    - Added "Price Updated" badge (showing delta $ and %) and crossed-out previous price on updated listings.
-    - Added "Price Updates ([count])" counter to the status strip.
-    - Added "🔄 Price Updated ([count])" quick-filter pill button.
-    - Added sort options: "🕒 Newest Discovered", "⏳ Oldest Discovered", and "🔄 Recently Updated (Price Change)".
-- Added test `test_discovered_and_price_update_tracking` in `tests/test_market_and_pricing.py` (24/24 tests pass).
-- Deployed to remote host `encoder1`, rebuilt site docs with live database, and verified GitHub Pages live deployment.
+  - Main listing cards only display active (unsold) matches.
+  - Added "Sold / Ended" view mode switcher tab and card styling with "SOLD / ENDED" badges and "Ended on eBay" links.
+  - Updated status strip to display active matching machines.
+- Updated `mac_ebay_scanner/cli.py`:
+  - Added `remove-sold` / `check-sold` command (with optional `--purge` for permanent deletion).
+  - Added `--all` and `--sold-only` options to `matches` command.
+  - Added `active_matched` and `total_sold` metrics to `stats` command.
+- Updated `service_encoder1.ps1` and `README.md` with sold removal actions.
+- Added comprehensive unit tests in `tests/test_sold_detection.py` (31/31 passed).
 
 ## Commands Run + Results
-- `pytest "D:\Code Projects\MacEbayScanner\tests" -v` -> 24 passed in 0.45s.
-- `python "D:\Code Projects\MacEbayScanner\main.py" build-site` -> Website generated cleanly in `docs/`.
-- `ssh encoder1 "cd /home/encoder1/MacEbayScanner && git pull origin main && python3 main.py build-site && ..."` -> Built on encoder1, committed and pushed `7c69c97..796a2ba`.
-- `gh api repos/Buckwheet/MacEbayScanner/pages/builds/latest` -> Build completed (`status: built`).
-- `curl.exe -s "https://buckwheet.github.io/MacEbayScanner/"` -> Live site confirmed rendering "Discovered" and "Price Updated" on listing cards and controls.
+- `python -m pytest "D:\Code Projects\MacEbayScanner\tests" -v` -> 31 passed in 0.67s.
+- `python "D:\Code Projects\MacEbayScanner\main.py" remove-sold` -> Checked 52 matched items: 43 active, 9 sold/ended detected and marked as sold, site rebuilt cleanly.
+- `python "D:\Code Projects\MacEbayScanner\main.py" stats` -> Active Matching Machines: 43, Sold / Ended Items: 9.
+- `python "D:\Code Projects\MacEbayScanner\main.py" matches --sold-only` -> Clean table listing all 9 sold/ended items with specs and pricing.
 
 ## Files Touched
+- `mac_ebay_scanner/ebay_client.py`
 - `mac_ebay_scanner/storage.py`
+- `mac_ebay_scanner/scanner.py`
 - `mac_ebay_scanner/site_generator.py`
-- `tests/test_market_and_pricing.py`
+- `mac_ebay_scanner/cli.py`
+- `tests/test_sold_detection.py`
+- `service_encoder1.ps1`
+- `README.md`
 - `docs/data.json`
 - `docs/index.html`
 - `PROJECT_STATE.md`
 
 ## Next 3 Actions
-- [x] Extract `first_seen_at`, `last_updated_at`, and price history delta in `storage.py` and `site_generator.py`.
-- [x] Enhance listing cards, sorting options, and filter controls in the dashboard template.
-- [x] Run unit tests (24/24 pass), deploy to `encoder1`, and verify live dashboard.
+- [x] Implement sold detection and storage tracking.
+- [x] Update scanner, site generator, and CLI commands.
+- [x] Deploy to `encoder1`, verify live service, and verify GitHub Pages site.

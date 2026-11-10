@@ -134,6 +134,50 @@ class MacEbayScanner:
     def stop(self):
         self._stop_requested = True
 
+    def check_sold_items(self, max_items: Optional[int] = 5) -> Dict[str, Any]:
+        """
+        Check active matched items to detect and mark sold/ended listings.
+        Checks oldest-updated items first to balance API quota.
+        """
+        active_items = self.storage.get_matched_items(limit=200, include_sold=False)
+        if not active_items:
+            return {"checked": 0, "sold_detected": 0, "sold_items": []}
+
+        def sort_key(it):
+            return it.get("last_updated_at") or it.get("first_seen_at") or ""
+
+        sorted_items = sorted(active_items, key=sort_key)
+        candidates = sorted_items[:max_items] if max_items else sorted_items
+
+        sold_detected = 0
+        sold_items = []
+
+        for it in candidates:
+            item_id = it["item_id"]
+            avail = self.ebay_client.check_item_availability(item_id)
+            if avail["is_sold"]:
+                sold_detected += 1
+                self.storage.mark_item_sold(item_id)
+                sold_items.append({
+                    "item_id": item_id,
+                    "title": it.get("title", ""),
+                    "reason": avail["reason"],
+                })
+                logger.info(
+                    f"REMOVED SOLD/ENDED ITEM: {item_id} ({avail['reason']}) - '{it.get('title', '')}'"
+                )
+            else:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                with self.storage._get_connection() as conn:
+                    conn.execute("UPDATE seen_items SET last_updated_at = ? WHERE item_id = ?", (now_iso, item_id))
+                    conn.commit()
+
+        return {
+            "checked": len(candidates),
+            "sold_detected": sold_detected,
+            "sold_items": sold_items,
+        }
+
     def scan_once(self) -> Dict[str, int]:
         """Execute a single scanning pass across all configured queries."""
         now_cst = self.get_cst_now()
@@ -182,6 +226,9 @@ class MacEbayScanner:
                 if self.storage.is_seen(item_id, legacy_id):
                     existing_rec = self.storage.get_item(item_id) or {}
                     is_matched = bool(existing_rec.get("matched"))
+                    if existing_rec.get("is_sold"):
+                        self.storage.mark_item_active(item_id)
+                        logger.info(f"Previously sold item is active again in eBay search: {item.get('title')}")
 
                     is_drop, old_price, drop_amt, drop_pct = self.storage.check_and_update_price(
                         item_id=item_id,
@@ -310,8 +357,12 @@ class MacEbayScanner:
                         filter_reason=final_res.reason,
                     )
 
-        # Refresh live website if new matches/drops occurred, or if 15-minute heartbeat is due
-        has_updates = (matches_found > 0 or price_drops_detected > 0)
+        # Check active matched items for sold/ended status (5 per scan to conserve API quota)
+        sold_res = self.check_sold_items(max_items=5)
+        sold_detected = sold_res.get("sold_detected", 0)
+
+        # Refresh live website if new matches/drops occurred or sold items were removed, or if 15-minute heartbeat is due
+        has_updates = (matches_found > 0 or price_drops_detected > 0 or sold_detected > 0)
         self.update_public_site(force=has_updates)
 
         stats = {
@@ -319,12 +370,13 @@ class MacEbayScanner:
             "new_items_processed": new_items,
             "matches_found": matches_found,
             "price_drops_detected": price_drops_detected,
+            "sold_detected": sold_detected,
             "notifications_sent": notifications_sent,
             "queued_overnight": queued_overnight,
             "is_daytime_window": is_immediate,
         }
         logger.info(
-            f"Scan pass complete: {new_items} new items, {matches_found} matches, "
+            f"Scan pass complete: {new_items} new items, {matches_found} matches, {sold_detected} sold/ended removed, "
             f"{notifications_sent} immediate alerts sent, {queued_overnight} queued for 5am digest."
         )
         return stats

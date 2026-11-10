@@ -24,7 +24,13 @@ switch ($Action.ToLower()) {
     "matches" {
         ssh encoder1 "cd /home/encoder1/MacEbayScanner && python3 main.py matches --limit 15"
     }
+    "remove-sold" {
+        ssh encoder1 "cd /home/encoder1/MacEbayScanner && python3 main.py remove-sold"
+    }
+    "check-sold" {
+        ssh encoder1 "cd /home/encoder1/MacEbayScanner && python3 main.py remove-sold"
+    }
     default {
-        Write-Host "Usage: .\service_encoder1.ps1 [status|logs|restart|stop|market|stats|matches]"
+        Write-Host "Usage: .\service_encoder1.ps1 [status|logs|restart|stop|market|stats|matches|remove-sold]"
     }
 }
